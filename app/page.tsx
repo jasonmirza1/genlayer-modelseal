@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, ArrowUpRight, CheckCircle2, ChevronRight, CircleDot, Clock3, Fingerprint, GitCommitHorizontal, Network, Play, Plus, Radar, ShieldCheck, TerminalSquare, TriangleAlert, Wallet } from 'lucide-react';
+import { Activity, ArrowUpRight, CheckCircle2, ChevronRight, CircleDot, Clock3, Fingerprint, GitCommitHorizontal, LogOut, Network, Play, Plus, Radar, ShieldCheck, TerminalSquare, TriangleAlert, Wallet } from 'lucide-react';
 
 type EthereumProvider = {
   isOkxWallet?: boolean;
@@ -45,15 +45,19 @@ export default function Home() {
         }
         activeChain=await provider.request({method:'eth_chainId'}) as string;
       }
-      setAccount(accounts[0]??''); setChainId(activeChain);
+      sessionStorage.removeItem('modelseal_wallet_disconnected'); setAccount(accounts[0]??''); setChainId(activeChain);
     }catch(error){setWalletError(error instanceof Error?error.message:'Wallet connection was rejected.')}finally{setConnecting(false)}
+  }
+  async function disconnectWallet(){
+    sessionStorage.setItem('modelseal_wallet_disconnected','1'); setAccount(''); setWalletError('');
+    try{await getProvider()?.request({method:'wallet_revokePermissions',params:[{eth_accounts:{}}]})}catch{/* Some injected wallets only support local app disconnection. */}
   }
   useEffect(()=>{
     const provider=getProvider(); if(!provider)return;
-    const accountsChanged=(value:unknown)=>setAccount(((value as string[])?.[0])??'');
+    const accountsChanged=(value:unknown)=>{if(sessionStorage.getItem('modelseal_wallet_disconnected')!=='1')setAccount(((value as string[])?.[0])??'')};
     const chainChanged=(value:unknown)=>setChainId(String(value));
     provider.on?.('accountsChanged',accountsChanged); provider.on?.('chainChanged',chainChanged);
-    void Promise.all([provider.request({method:'eth_accounts'}),provider.request({method:'eth_chainId'})]).then(([accounts,chain])=>{setAccount(((accounts as string[])?.[0])??'');setChainId(String(chain))}).catch(()=>undefined);
+    void Promise.all([provider.request({method:'eth_accounts'}),provider.request({method:'eth_chainId'})]).then(([accounts,chain])=>{if(sessionStorage.getItem('modelseal_wallet_disconnected')!=='1')setAccount(((accounts as string[])?.[0])??'');setChainId(String(chain))}).catch(()=>undefined);
     return()=>{provider.removeListener?.('accountsChanged',accountsChanged);provider.removeListener?.('chainChanged',chainChanged)};
   },[]);
   useEffect(()=>{
@@ -72,7 +76,7 @@ export default function Home() {
   return <main className="app-shell">
     <aside className="sidebar"><div className="brand"><span className="brand-mark"><Fingerprint size={19}/></span><span>MODELSEAL</span></div>
       <nav aria-label="Primary navigation"><button className="nav-item active"><Radar size={17}/> Audit console</button><button className="nav-item"><Network size={17}/> Endpoints <span>03</span></button><button className="nav-item"><Fingerprint size={17}/> Probe suites</button><button className="nav-item"><Activity size={17}/> History</button></nav>
-      <div className="sidebar-foot"><div className="network-dot"><i className={chainId&&parseInt(chainId,16)!==4221?'wrong-network':''}/> {chainId&&parseInt(chainId,16)!==4221?'Wrong network':'Bradbury Testnet'}</div>{account?<button className="wallet connected" onClick={connectWallet}><Wallet size={14}/>{account.slice(0,5)}…{account.slice(-4)}</button>:<button className="wallet" onClick={connectWallet} disabled={connecting}><Wallet size={14}/>{connecting?'Connecting…':'Connect wallet'}</button>}{walletError&&<small className="wallet-error">{walletError}</small>}</div></aside>
+      <div className="sidebar-foot"><div className="network-dot"><i className={chainId&&parseInt(chainId,16)!==4221?'wrong-network':''}/> {chainId&&parseInt(chainId,16)!==4221?'Wrong network':'Bradbury Testnet'}</div>{account?<><div className="wallet connected"><Wallet size={14}/>{account.slice(0,5)}…{account.slice(-4)}</div><button className="disconnect" onClick={disconnectWallet}><LogOut size={13}/> Disconnect</button></>:<button className="wallet" onClick={connectWallet} disabled={connecting}><Wallet size={14}/>{connecting?'Connecting…':'Connect wallet'}</button>}{walletError&&<small className="wallet-error">{walletError}</small>}</div></aside>
     <section className="workspace"><header className="topbar"><div><p className="eyebrow">Endpoint assurance</p><h1>Audit console</h1></div><button className="secondary"><Plus size={16}/> Register endpoint</button></header>
       <div className="metric-grid"><article><span>Monitored endpoints</span><strong>03</strong><small><i className="live-dot"/> All reachable</small></article><article><span>Audits this epoch</span><strong>42</strong><small>Epoch 141 · 68% complete</small></article><article><span>Consistency rate</span><strong>91.4%</strong><small className="up">↑ 2.8% over 7 days</small></article><article className="alert-metric"><span>Open drift signals</span><strong>01</strong><small>Review required</small></article></div>
       <div className="main-grid"><section className="panel audit-panel"><div className="panel-head"><div><p className="eyebrow">New verification</p><h2>Run probe suite</h2></div><span className="suite-lock"><GitCommitHorizontal size={14}/> suite@8f31c2a</span></div>
