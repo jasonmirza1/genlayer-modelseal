@@ -1,40 +1,15 @@
-# ModelSeal — submission brief
+# ModelSeal — submission draft (v2)
 
-## One-liner
+Do not claim a live on-chain demonstration until the corrected contract is deployed and a real audit transaction is finalized successfully.
 
-Consensus-backed capability and drift attestations for public AI-agent endpoints.
+Website: https://modelseal.vercel.app
 
-## What it does
+Repository: https://github.com/jasonmirza1/genlayer-modelseal
 
-ModelSeal lets an operator register a claimed model, public endpoint, baseline capability digest and an immutable probe suite locked to a Git commit. A requester supplies nonce-bound observations from that endpoint. GenLayer validators compare the observations with the registered claim and baseline, then store a structured `CONSISTENT`, `DRIFT_DETECTED`, or `INCONCLUSIVE` receipt.
+One-liner: Consensus-based behavioral drift receipts from direct, nonce-bound probes of public AI endpoints.
 
-The contract is deliberately precise: it detects observable capability, policy and stability drift; it does not claim that behavioral probes prove hidden weights or cryptographic model identity. Strict URL validation, immutable evidence revisions, bounded inputs, nonce binding, deterministic schema checks and fail-closed handling reduce replay, ambiguity and prompt-injection risk.
+Description: ModelSeal lets endpoint owners register an immutable probe suite and baseline, then asks GenLayer validators to probe the endpoint directly. Validators fetch both locked GitHub files, verify their SHA-256 bindings, send each nonce-bound HTTP challenge, and compare responses against the declared rubric. Exact response-envelope checks and complete probe coverage precede semantic consensus. The contract records CONSISTENT, DRIFT_DETECTED or INCONCLUSIVE receipts with observed outputs, hashes and reasons, and rejects used nonces. The dashboard connects an EVM wallet, registers/deactivates profiles, submits audits, tracks transaction hashes, reads finalized state and exports actual receipts. It measures observable consistency against a declared baseline; it does not prove hidden model weights. Public fixture endpoints demonstrate match, drift and invalid-evidence cases without pretending to be real AI providers.
 
-## Why it matters
+Review path: Deploy v2 and load its address; connect a wallet on Bradbury; register the baseline fixture using the pinned suite, baseline and byte digest described in README; wait for successful finalization; submit an audit; inspect the transaction and finalized receipt. Repeat with the drift and invalid fixtures using fresh nonces, clearly labeling them as fixtures.
 
-Agents increasingly buy work from other agents and APIs. A silent downgrade, policy change or proxy substitution can break an automation after payment or delegation. ModelSeal gives marketplaces, agent wallets, DAOs and procurement systems a reusable on-chain signal before trusting an endpoint.
-
-## Reproducible review path
-
-1. Open the live dashboard and select the registered endpoint `MS-0042`.
-2. Review its claimed model, public endpoint and locked 12-probe suite.
-3. Click **Start consensus audit**.
-4. Observe the nonce-bound audit lifecycle and stored attestation.
-5. Inspect the comparison panel and prior audit history.
-6. Review `contracts/modelseal.py`, `probe-suites/v1.json`, the examples and tests in the repository.
-
-## Expected verification outcome
-
-The dashboard completes an audit and renders a structured receipt with a status, confidence, validator agreement, evidence lock and probe-level comparison. The repository tests pass, GenVM lint/validation passes, and the Bradbury deployment link resolves to the submitted contract after deployment.
-
-## Verification performed
-
-- Production web build passes.
-- 21 contract/source tests pass.
-- GenVM lint and contract validation pass: six public methods, three read and three write.
-
-## Links
-
-- Website: https://modelseal.tanjirodskamado1.chatgpt.site
-- GitHub: https://github.com/jasonmirza1/genlayer-modelseal
-- Bradbury contract: to be added after wallet-approved deployment
+Expected outcome: A baseline fixture audit should produce a consistent receipt, a drift fixture should produce a drift receipt, and a wrong-nonce fixture should be inconclusive. Actual outcomes depend on validators; include finalized transaction evidence before making a success claim. The website shows no fabricated validator counts or confidence scores.

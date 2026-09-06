@@ -1,36 +1,69 @@
-# ModelSeal
+# ModelSeal v2
 
-ModelSeal is an AI endpoint capability and behavioral drift auditor for the GenLayer Agent Tank hackathon. It records endpoint claims, locks probe suites and evidence packets to immutable Git commits, and uses comparative validator consensus to classify audits as `CONSISTENT`, `DRIFT_DETECTED`, or `INCONCLUSIVE`.
+Public dashboard: https://modelseal.vercel.app
 
-ModelSeal does not claim to prove hidden model weights. It provides an auditable signal that an endpoint's observable capabilities remain consistent with a registered baseline.
+ModelSeal compares observable AI endpoint behavior against an operator-declared baseline using GenLayer comparative consensus. It cannot prove hidden model weights or exclude a proxy. Version 2 replaces the earlier simulated UI and unverified evidence-packet design.
 
-## What it demonstrates
+## Actual audit path
 
-- Immutable endpoint profiles with a claimed model, public HTTPS endpoint, probe-suite revision, and SHA-256 baseline digest.
-- Nonce-bound evidence packets locked to full 40-character Git commits.
-- Comparative consensus over capability failures and behavioral drift signals.
-- Fail-closed normalization for weak, malformed, unreachable, unlocked, or inconsistent evidence.
-- A responsive audit dashboard with endpoint registration, audit history, evidence comparison, and a runnable demo state.
+1. An owner registers a public HTTPS challenge endpoint, claimed model, immutable GitHub suite and baseline URLs, and SHA-256 of the baseline file's exact bytes.
+2. Each validator fetches both files. Code checks the baseline hash and the suite hash embedded in the baseline, complete probe coverage, schema and byte limits.
+3. Each validator POSTs 1–4 challenges directly to the registered endpoint, with the supplied fresh nonce and probe ID.
+4. Code checks HTTP status, JSON types, byte/output limits and exact nonce/probe binding. An LLM compares each output with the baseline and rubric. Incomplete comparisons become INCONCLUSIVE.
+5. Comparative consensus requires matching classifications, probe verdicts, suite hash and baseline verification, plus materially equivalent observations. A receipt stores the outputs, response hashes, file locks, nonce and reasons.
+6. The finalized receipt consumes the nonce for that profile, including an INCONCLUSIVE result. Reuse is rejected before HTTP calls. An aborted transaction does not produce a receipt; consult the explorer before retrying.
 
-## Local development
+The dashboard uses genlayer-js 1.1.8 with the actual selected wallet provider. Reads use `LATEST_FINAL`; writes require wallet confirmation. It preserves the submitted transaction hash locally and exposes explicit status checks. ACCEPTED and FINALIZED are separate from the audit's result and the transaction's execution outcome. No background retry or sample analytics are generated.
 
-```bash
-npm install
-npm run dev
+## Endpoint protocol
+
+Accept `POST` with `Content-Type: application/json`:
+
+```json
+{"schema":"modelseal.challenge.v2","nonce":"<32–64 lowercase hex characters>","probe_id":"idempotency","prompt":"Explain safe payment retries."}
 ```
 
-The Intelligent Contract is at `contracts/modelseal.py`.
+Return HTTP 200 JSON:
 
-## Audit states
+```json
+{"nonce":"<exact request nonce>","probe_id":"idempotency","output":"Your model's actual answer"}
+```
 
-- `CONSISTENT`: validators found adequate evidence and no material deviation.
-- `DRIFT_DETECTED`: one or more capability failures or drift signals were agreed.
-- `INCONCLUSIVE`: evidence was weak, malformed, unreachable, or did not reach semantic agreement.
+An endpoint owner can implement this adapter in front of their model. Credentials stay at the owner's adapter; validators need public access. Do not pass secrets in prompts. Non-200 responses, redirects exposed as non-200, invalid envelopes, wrong nonces and malformed comparisons yield INCONCLUSIVE. Public DNS/egress security remains the responsibility of the GenLayer web runtime; URL checks do not resolve DNS or prove a hostname remains public.
 
-## Security model
+## Reproducible fixtures
 
-Probe suites and evidence use immutable GitHub blob URLs. Evidence is bounded and treated as untrusted data inside the validator prompt. Required booleans must be present, confidence is bounded to 0–100, and the contract refuses to treat a drift verdict without concrete signals as verified drift.
+These are deliberately programmed test fixtures, **not AI models or external validation evidence**:
 
-## Limitations
+- `https://modelseal.vercel.app/api/fixture/baseline` returns the baseline answers.
+- `https://modelseal.vercel.app/api/fixture/drift` returns deliberately contradictory answers.
+- `https://modelseal.vercel.app/api/fixture/invalid` returns an incorrect nonce.
 
-Behavioral probes cannot prove a provider's underlying model weights and can be affected by system prompts, sampling, gateways, and deliberate fingerprint spoofing. ModelSeal therefore reports consistency and drift evidence, not cryptographic model identity.
+The executable suite is `probe-suites/v2.json`; its matching reference is `examples/baseline-v2.json`. Obtain commit-pinned links and the baseline byte hash with `node scripts/review-links.mjs` after committing. Register each fixture as a separate profile, then submit audits from the browser. Expected outcomes are CONSISTENT, DRIFT_DETECTED and INCONCLUSIVE respectively; semantic outcomes still depend on actual network consensus. Fixture runs must be identified as such in a submission.
+
+## Deployment and use
+
+1. Deploy the corrected `contracts/modelseal.py` as a **new** Bradbury instance in Studio. Its constructor takes no arguments. The v2 API/storage is incompatible with v1; do not overwrite a v1 instance.
+2. Wait for finalization and inspect execution success. Enter its address in the dashboard's contract field. `get_counts` must return version `2`.
+3. Connect OKX or an injected EVM wallet, switch to Bradbury, and register a profile with the pinned files and digest.
+4. Check the submitted transaction in the explorer. Refresh finalized state after finalization, select the profile and submit an audit.
+5. Refresh finalized receipts, open a receipt and download its actual evidence JSON.
+
+No Bradbury v2 deployment address has been fabricated or preconfigured. Local storage remembers the contract and pending transaction for this browser/account. For a shared default address, set `NEXT_PUBLIC_MODELSEAL_ADDRESS` on Vercel and redeploy after the contract is verified.
+
+## Development and checks
+
+```sh
+npm ci
+npm run build
+python -B -m pytest -q tests
+python -X utf8 -m genvm_linter.cli check contracts/modelseal.py
+npx playwright install chromium
+npx playwright test
+```
+
+Python tests require `genlayer-test`/gltest and genvm-linter. Runtime tests execute against the locally installed GenVM SDK with mocked HTTP and LLM boundaries; they do not prove distributed Bradbury settlement. Browser tests use a mocked wallet. The app can be run with `npm run dev` or deployed with `npx vercel --prod`.
+
+## Limits
+
+Each contract has a 10,000 profile/receipt cap, each page returns at most 20 records, and suites contain up to four probes. Endpoint answers are bounded to 2,000 characters each. Results measure consistency against a supplied baseline, not universal quality, safety, identity or a probability score. Public probes can be recognized or spoofed; changing sampling/system prompts can affect outcomes. Prompt instructions reduce injection risk but do not prove immunity. DNS rebinding/redirect restrictions depend on runtime enforcement. On-chain evidence is public.

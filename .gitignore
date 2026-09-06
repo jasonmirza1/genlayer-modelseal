@@ -10,6 +10,9 @@
 
 # testing
 /coverage
+/test-results/
+/playwright-report/
+*.tsbuildinfo
 .pytest_cache/
 __pycache__/
 *.py[cod]
