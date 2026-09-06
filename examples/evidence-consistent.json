@@ -1,0 +1,12 @@
+{
+  "schema": "modelseal.evidence.v1",
+  "endpoint": "https://agent.example/api/respond",
+  "suite": "probe-suites/v1.json",
+  "nonce": "demo-consistent-001",
+  "observations": {
+    "passed": 12,
+    "failed": 0,
+    "inconclusive": 0,
+    "capability_digest": "sha256:demo-consistent-baseline"
+  }
+}

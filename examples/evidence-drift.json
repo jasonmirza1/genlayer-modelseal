@@ -1,0 +1,13 @@
+{
+  "schema": "modelseal.evidence.v1",
+  "endpoint": "https://agent.example/api/respond",
+  "suite": "probe-suites/v1.json",
+  "nonce": "demo-drift-002",
+  "observations": {
+    "passed": 8,
+    "failed": 3,
+    "inconclusive": 1,
+    "capability_digest": "sha256:demo-drifted-capabilities",
+    "changed_probes": ["tool-declaration", "refusal-boundary", "json-conformance"]
+  }
+}
