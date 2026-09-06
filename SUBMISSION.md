@@ -36,5 +36,5 @@ The dashboard completes an audit and renders a structured receipt with a status,
 ## Links
 
 - Website: https://modelseal.tanjirodskamado1.chatgpt.site
-- GitHub: to be added after repository publication
+- GitHub: https://github.com/jasonmirza1/genlayer-modelseal
 - Bradbury contract: to be added after wallet-approved deployment
