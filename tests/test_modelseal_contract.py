@@ -22,6 +22,7 @@ class TreeMap(dict):
 @pytest.fixture
 def env():
     calls=[]
+    authorized_upgraders=[]
     state={'suite':SUITE_BYTES,'base':BASE_BYTES,'output':'Repeating has no duplicate effect.','nonce':NONCE,'status':200,'answer':{'summary':'Observable behavior matches.','probes':[{'id':'explain','verdict':'MATCH','reason':'Same operational semantics.'}]}}
     def response(body,status=200):return types.SimpleNamespace(body=body,status=status)
     def get(url):
@@ -32,7 +33,8 @@ def env():
     def request(url,**kwargs):
         calls.append(('POST',url,json.loads(kwargs['body'])))
         return response(json.dumps({'nonce':state['nonce'],'probe_id':'explain','output':state['output']}).encode(),state['status'])
-    gl=types.ModuleType('genlayer');gl.contract=types.SimpleNamespace(Contract=object);gl.storage=types.SimpleNamespace(TreeMap=TreeMap);gl.u256=int;gl.public=types.SimpleNamespace(write=lambda f:f,view=lambda f:f);gl.vm=types.SimpleNamespace(UserError=ValueError);gl.message=types.SimpleNamespace(sender_address=types.SimpleNamespace(as_hex='0xOwner'));gl.nondet=types.SimpleNamespace(web=types.SimpleNamespace(get=get,request=request),exec_prompt=lambda *a,**kw:json.dumps(state['answer']));gl.eq_principle=types.SimpleNamespace(prompt_comparative=lambda fn,*args,**kw:fn())
+    root=types.SimpleNamespace(upgraders=types.SimpleNamespace(get=lambda:authorized_upgraders))
+    gl=types.ModuleType('genlayer');gl.contract=types.SimpleNamespace(Contract=object);gl.storage=types.SimpleNamespace(TreeMap=TreeMap,Root=types.SimpleNamespace(get=lambda:root));gl.u256=int;gl.public=types.SimpleNamespace(write=lambda f:f,view=lambda f:f);gl.vm=types.SimpleNamespace(UserError=ValueError);gl.message=types.SimpleNamespace(sender_address=types.SimpleNamespace(as_hex='0xOwner'));gl.nondet=types.SimpleNamespace(web=types.SimpleNamespace(get=get,request=request),exec_prompt=lambda *a,**kw:json.dumps(state['answer']));gl.eq_principle=types.SimpleNamespace(prompt_comparative=lambda fn,*args,**kw:fn())
     stub=gl
     old=sys.modules.get('genlayer');sys.modules['genlayer']=stub
     try:
@@ -42,6 +44,7 @@ def env():
         else:sys.modules['genlayer']=old
     obj=module.ModelSeal();obj.profiles={};obj.receipts={};obj.used_nonces={};obj.profile_count=0;obj.receipt_count=0
     obj.register_endpoint('Agent','https://agent.acme.com/challenge','Declared model',SUITE_URL,BASE_URL,hashlib.sha256(BASE_BYTES).hexdigest())
+    assert authorized_upgraders == [gl.message.sender_address]
     return obj,state,calls,gl
 
 def test_fetches_suite_baseline_and_posts_challenge(env):

@@ -18,7 +18,10 @@ class ModelSeal(gl.contract.Contract):
     receipt_count: gl.u256
 
     def __init__(self):
-        pass
+        # Keep the deployment recoverable: only the deploying wallet may replace
+        # the code, while all application state remains in the existing slots.
+        root = gl.storage.Root.get()
+        root.upgraders.get().append(gl.message.sender_address)
 
     def _text(self, value: str, limit: int) -> str:
         if not isinstance(value, str) or not value.strip() or len(value) > limit:
