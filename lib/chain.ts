@@ -1,13 +1,28 @@
 import { createClient } from 'genlayer-js';
-import { testnetBradbury } from 'genlayer-js/chains';
+import { studioDevnet } from 'genlayer-js/chains';
 import { TransactionHashVariant } from 'genlayer-js/types';
 
-export const EXPLORER = 'https://explorer-bradbury.genlayer.com';
+export const EXPLORER = 'https://explorer-studio-dev.genlayer.com';
+export const STUDIO_NEXT_RPC =
+  process.env.NEXT_PUBLIC_GENLAYER_RPC_URL ??
+  'https://studio-next.genlayer.com/api';
+export const STUDIO_NEXT_CHAIN_ID = Number(
+  process.env.NEXT_PUBLIC_GENLAYER_CHAIN_ID ?? 61997,
+);
+export const STUDIO_NEXT_CHAIN = {
+  ...studioDevnet,
+  id: STUDIO_NEXT_CHAIN_ID,
+  name: 'GenLayer Studio Next',
+  rpcUrls: { default: { http: [STUDIO_NEXT_RPC] } },
+  blockExplorers: {
+    default: { name: 'GenLayer Studio Dev Explorer', url: EXPLORER },
+  },
+};
 export const NETWORK = {
-  chainId: '0x107d',
-  chainName: 'GenLayer Bradbury',
+  chainId: `0x${STUDIO_NEXT_CHAIN_ID.toString(16)}`,
+  chainName: 'GenLayer Studio Next',
   nativeCurrency: { name: 'GEN', symbol: 'GEN', decimals: 18 },
-  rpcUrls: ['https://rpc-bradbury.genlayer.com'],
+  rpcUrls: [STUDIO_NEXT_RPC],
   blockExplorerUrls: [EXPLORER],
 };
 export type Provider = NonNullable<
@@ -28,7 +43,7 @@ export function plain(value: unknown): unknown {
 }
 export function client(account?: string, provider?: Provider) {
   return createClient({
-    chain: testnetBradbury,
+    chain: STUDIO_NEXT_CHAIN,
     ...(account ? { account: account as `0x${string}`, provider } : {}),
   });
 }

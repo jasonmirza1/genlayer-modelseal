@@ -1,6 +1,7 @@
 'use client';
+/* oxlint-disable react/react-compiler -- browser wallet and finalized-chain state are synchronized by effects */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Fingerprint,
   Wallet,
@@ -10,14 +11,19 @@ import {
   Play,
   Download,
 } from 'lucide-react';
+import { createTransactionKit } from '@genlayer/transaction-kit';
 import {
-  client,
+  GenLayerTransactionPanel,
+  type SubmitInput,
+  type TrackedStatus,
+} from '@genlayer/transaction-kit-react';
+import {
   read,
-  plain,
   isAddress,
   EXPLORER,
   NETWORK,
-  type Provider,
+  STUDIO_NEXT_CHAIN,
+  STUDIO_NEXT_CHAIN_ID,
 } from '@/lib/chain';
 
 type Injected = {
@@ -53,7 +59,6 @@ type Receipt = {
   probes: { id: string; verdict: string; reason: string }[];
   observations: unknown[];
 };
-type Pending = { hash: string; action: string; status: string };
 const tabs = ['Audit console', 'Endpoints', 'Probe suites', 'History'] as const;
 function getProvider() {
   return (
@@ -97,23 +102,35 @@ export default function Home() {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [register, setRegister] = useState(false);
-  const [pending, setPending] = useState<Pending | null>(null);
-  const [checking, setChecking] = useState(false);
+  const [pendingTx, setPendingTx] = useState<{
+    label: string;
+    tx: SubmitInput;
+  } | null>(null);
   const providerRef = useRef<Injected | undefined>(undefined);
   const disconnected = useRef(false);
   const generation = useRef(0);
-  const writeLock = useRef(false);
   const selectedProfile = profiles.find((p) => p.id === selected);
   const ready =
-    verified && !!account && parseInt(chain, 16) === 4221 && !busy && !pending;
-  const sessionKey =
-    address && account
-      ? `modelseal.tx.${address.toLowerCase()}.${account.toLowerCase()}`
-      : '';
+    verified &&
+    !!account &&
+    parseInt(chain, 16) === STUDIO_NEXT_CHAIN_ID &&
+    !busy;
+  const transactionKit = useMemo(() => {
+    const provider = providerRef.current;
+    if (!provider || !account || parseInt(chain, 16) !== STUDIO_NEXT_CHAIN_ID)
+      return null;
+    return createTransactionKit({
+      chain: STUDIO_NEXT_CHAIN,
+      provider,
+      account: account as `0x${string}`,
+    });
+  }, [account, chain]);
 
   useEffect(() => {
+    // Initialization intentionally synchronizes persisted browser state once.
+    // oxlint-disable-next-line react/react-compiler
     const saved =
-      localStorage.getItem('modelseal.contract.v2') ??
+      localStorage.getItem('modelseal.contract.studio-next') ??
       process.env.NEXT_PUBLIC_MODELSEAL_ADDRESS ??
       '';
     if (isAddress(saved)) {
@@ -145,21 +162,6 @@ export default function Home() {
       p.removeListener?.('chainChanged', chains);
     };
   }, []);
-  useEffect(() => {
-    setPending(null);
-    if (!sessionKey) return;
-    try {
-      const value = JSON.parse(localStorage.getItem(sessionKey) ?? 'null');
-      if (value && /^0x[0-9a-fA-F]{64}$/.test(value.hash)) setPending(value);
-    } catch {}
-  }, [sessionKey]);
-  function remember(value: Pending | null) {
-    setPending(value);
-    if (sessionKey) {
-      if (value) localStorage.setItem(sessionKey, JSON.stringify(value));
-      else localStorage.removeItem(sessionKey);
-    }
-  }
   async function connect() {
     setError('');
     setWalletBusy(true);
@@ -261,84 +263,48 @@ export default function Home() {
     }
   }, [address, profileOffset, receiptOffset]);
   useEffect(() => {
+    // Contract/page changes invalidate the prior finalized-state snapshot.
+    // oxlint-disable-next-line react/react-compiler
     setVerified(false);
     setDetail(null);
     void refresh();
   }, [refresh]);
-  async function write(action: string, args: string[]) {
-    if (!ready || writeLock.current) return;
-    writeLock.current = true;
-    setBusy(true);
+  function prepareWrite(label: string, method: string, args: string[]) {
+    if (!ready || !transactionKit || !isAddress(address)) return;
     setError('');
-    setNotice('Review the transaction in your wallet.');
-    try {
-      const p = providerRef.current;
-      if (!p) throw new Error('Reconnect your wallet.');
-      const actual = (await p.request({ method: 'eth_accounts' })) as string[];
-      if (
-        actual[0]?.toLowerCase() !== account.toLowerCase() ||
-        parseInt(String(await p.request({ method: 'eth_chainId' })), 16) !==
-          4221
-      )
-        throw new Error(
-          'Wallet account or network changed. Reconnect before signing.',
-        );
-      const hash = await client(account, p as Provider).writeContract({
+    setNotice('Review the Studio Next fee quote before signing.');
+    setPendingTx({
+      label,
+      tx: {
+        kind: 'write',
         address: address as `0x${string}`,
-        functionName: action,
+        method,
         args,
-        value: BigInt(0),
-      });
-      if (typeof hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(hash))
-        throw new Error(
-          'Submission response was undetermined. Inspect your wallet activity before retrying.',
-        );
-      remember({ hash, action, status: 'SUBMITTED' });
-      setNotice(
-        'Transaction submitted. Check its status; results appear only after finalization.',
-      );
-    } catch (e) {
-      setError(errorText(e));
-      setNotice(
-        'If your wallet submitted a transaction, inspect the explorer before retrying.',
-      );
-    } finally {
-      writeLock.current = false;
-      setBusy(false);
-    }
+      },
+    });
   }
-  async function checkTransaction() {
-    if (!pending) return;
-    setChecking(true);
-    setError('');
-    try {
-      const tx = plain(
-        await client().getTransaction({
-          hash: pending.hash as Parameters<
-            ReturnType<typeof client>['getTransaction']
-          >[0]['hash'],
-        }),
-      ) as Record<string, unknown>;
-      const status = String(tx.statusName ?? tx.status_name ?? 'UNDETERMINED');
-      remember({ ...pending, status });
-      if (status === 'FINALIZED') {
-        setNotice(
-          'Transaction finalized. Inspect the explorer for execution outcome; refresh loads finalized contract state.',
-        );
-        await refresh();
-      }
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setChecking(false);
+  async function transactionDone(status: TrackedStatus) {
+    if (status.successful === false) {
+      setError(
+        `Transaction completed without a successful outcome: ${status.executionResultName ?? status.statusName ?? 'unknown'}.`,
+      );
+      return;
     }
+    setNotice(
+      'Transaction finalized successfully. Refreshing finalized Studio Next state.',
+    );
+    setPendingTx(null);
+    await refresh();
   }
   function applyAddress() {
     if (!isAddress(addressInput.trim())) {
       setError('Enter a valid deployed contract address.');
       return;
     }
-    localStorage.setItem('modelseal.contract.v2', addressInput.trim());
+    localStorage.setItem(
+      'modelseal.contract.studio-next',
+      addressInput.trim(),
+    );
     setProfiles([]);
     setReceipts([]);
     setDetail(null);
@@ -371,8 +337,8 @@ export default function Home() {
         <div className="sidebar-foot">
           <div>
             {account
-              ? parseInt(chain, 16) === 4221
-                ? 'Bradbury connected'
+              ? parseInt(chain, 16) === STUDIO_NEXT_CHAIN_ID
+                ? 'Studio Next connected'
                 : 'Wrong network'
               : 'Wallet disconnected'}
           </div>
@@ -382,14 +348,14 @@ export default function Home() {
                 <Wallet size={14} />
                 {account.slice(0, 6)}…{account.slice(-4)}
               </div>
-              {parseInt(chain, 16) !== 4221 && (
+              {parseInt(chain, 16) !== STUDIO_NEXT_CHAIN_ID && (
                 <button
                   className="wallet"
                   onClick={() =>
                     void switchNetwork().catch((e) => setError(errorText(e)))
                   }
                 >
-                  Switch to Bradbury
+                  Switch to Studio Next
                 </button>
               )}
               <button
@@ -431,19 +397,19 @@ export default function Home() {
           </button>
         </header>
         <section className="panel configuration">
-          <label htmlFor="contract">Bradbury ModelSeal v2 contract</label>
+          <label htmlFor="contract">Studio Next ModelSeal contract</label>
           <div className="inline-form">
             <input
               id="contract"
               value={addressInput}
               onChange={(e) => setAddressInput(e.target.value)}
               placeholder="0x… deployed contract address"
-              disabled={busy || !!pending}
+              disabled={busy || !!pendingTx}
             />
             <button
               className="secondary"
               onClick={applyAddress}
-              disabled={busy || !!pending}
+              disabled={busy || !!pendingTx}
             >
               Load contract
             </button>
@@ -458,7 +424,7 @@ export default function Home() {
           </div>
           <p className="subtle">
             {verified
-              ? 'Reading finalized state on Bradbury.'
+              ? 'Reading finalized state on Studio Next.'
               : address
                 ? 'Waiting for a verified v2 deployment.'
                 : 'Contract deployment required. No audit results or activity are fabricated.'}{' '}
@@ -479,56 +445,32 @@ export default function Home() {
           </div>
         )}
         {notice && (
-          <div className="message" role="status">
+          <output className="message">
             {notice}
-          </div>
+          </output>
         )}
-        {pending && (
+        {pendingTx && transactionKit && (
           <section className="panel configuration">
-            <strong>
-              {pending.action} · {pending.status}
-            </strong>
-            <p>
-              <a
-                href={`${EXPLORER}/tx/${pending.hash}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Inspect transaction ↗
-              </a>
-            </p>
-            <div className="inline-form">
+            <div className="transaction-heading">
+              <div>
+                <p className="eyebrow">Studio Next transaction</p>
+                <h2>{pendingTx.label}</h2>
+              </div>
               <button
                 className="secondary"
-                onClick={() => void checkTransaction()}
-                disabled={checking}
+                onClick={() => setPendingTx(null)}
               >
-                {checking ? 'Checking…' : 'Check status'}
+                Close
               </button>
-              {[
-                'FINALIZED',
-                'CANCELED',
-                'UNDETERMINED',
-                'LEADER_TIMEOUT',
-                'VALIDATORS_TIMEOUT',
-              ].includes(pending.status) && (
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    remember(null);
-                    setNotice(
-                      'Transaction notice dismissed. Its explorer record remains available.',
-                    );
-                  }}
-                >
-                  Dismiss after checking explorer
-                </button>
-              )}
             </div>
-            <p className="subtle">
-              Accepted is not finalized. A finalized transaction can still have
-              a failed execution. No automatic resubmission.
-            </p>
+            <GenLayerTransactionPanel
+              kit={transactionKit}
+              tx={pendingTx.tx}
+              network="GenLayer Studio Next"
+              theme="dark"
+              trackUntil="finalized"
+              onDone={(status) => void transactionDone(status)}
+            />
           </section>
         )}
         <div className="metric-grid">
@@ -567,7 +509,8 @@ export default function Home() {
               onSubmit={(e) => {
                 e.preventDefault();
                 const f = new FormData(e.currentTarget);
-                void write(
+                prepareWrite(
+                  'Register endpoint',
                   'register_endpoint',
                   [
                     'name',
@@ -576,7 +519,10 @@ export default function Home() {
                     'probe_suite_url',
                     'baseline_url',
                     'baseline_digest',
-                  ].map((k) => String(f.get(k) ?? '')),
+                  ].map((k) => {
+                    const value = f.get(k);
+                    return typeof value === 'string' ? value : '';
+                  }),
                 );
               }}
             >
@@ -607,8 +553,8 @@ export default function Home() {
               </button>
             </form>
             <p className="subtle">
-              Connect your wallet, load the corrected contract and switch to
-              Bradbury to enable registration.
+              Connect your wallet, load the contract and switch to Studio Next
+              to enable registration.
             </p>
           </section>
         )}
@@ -653,7 +599,7 @@ export default function Home() {
               disabled={!ready || !selectedProfile?.active}
               onClick={() => {
                 const bytes = crypto.getRandomValues(new Uint8Array(24));
-                void write('audit_endpoint', [
+                prepareWrite('Run live endpoint audit', 'audit_endpoint', [
                   selected,
                   [...bytes]
                     .map((b) => b.toString(16).padStart(2, '0'))
@@ -675,8 +621,8 @@ export default function Home() {
             <h2>Registered endpoints</h2>
             {profiles.length === 0 ? (
               <p>
-                No endpoints loaded. Register one after deploying the corrected
-                contract.
+                No endpoints loaded. Register one after deploying the Studio
+                Next contract.
               </p>
             ) : (
               profiles.map((p) => (
@@ -706,7 +652,11 @@ export default function Home() {
                           className="secondary"
                           disabled={!ready}
                           onClick={() =>
-                            void write('deactivate_endpoint', [p.id])
+                            prepareWrite(
+                              'Deactivate endpoint',
+                              'deactivate_endpoint',
+                              [p.id],
+                            )
                           }
                         >
                           Deactivate with wallet

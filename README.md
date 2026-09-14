@@ -13,7 +13,7 @@ ModelSeal compares observable AI endpoint behavior against an operator-declared 
 5. Comparative consensus requires matching classifications, probe verdicts, suite hash and baseline verification, plus materially equivalent observations. A receipt stores the outputs, response hashes, file locks, nonce and reasons.
 6. The finalized receipt consumes the nonce for that profile, including an INCONCLUSIVE result. Reuse is rejected before HTTP calls. An aborted transaction does not produce a receipt; consult the explorer before retrying.
 
-The dashboard uses genlayer-js 1.1.8 with the actual selected wallet provider. Reads use `LATEST_FINAL`; writes require wallet confirmation. It preserves the submitted transaction hash locally and exposes explicit status checks. ACCEPTED and FINALIZED are separate from the audit's result and the transaction's execution outcome. No background retry or sample analytics are generated.
+The dashboard uses `genlayer-js@2.0.0-rc.1` and Transaction Kit RC2 with the actual selected wallet provider. Reads use `LATEST_FINAL`; every write is quoted through the fee-aware review panel and requires wallet confirmation. It tracks through finalization and separates consensus status from execution success. No background retry or sample analytics are generated.
 
 ## Endpoint protocol
 
@@ -43,26 +43,26 @@ The executable suite is `probe-suites/v2.json`; its matching reference is `examp
 
 ## Deployment and use
 
-1. Deploy the corrected `contracts/modelseal.py` as a **new** Bradbury instance in Studio. Its constructor takes no arguments. The v2 API/storage is incompatible with v1; do not overwrite a v1 instance.
+1. Open **Studio Next**, select chain ID `61997`, and deploy `contracts/modelseal.py` as a new instance. Its constructor takes no arguments. Do not overwrite the historical Bradbury instance.
 2. Wait for finalization and inspect execution success. Enter its address in the dashboard's contract field. `get_counts` must return version `2`.
-3. Connect OKX or an injected EVM wallet, switch to Bradbury, and register a profile with the pinned files and digest.
+3. Connect OKX or an injected EVM wallet, switch to Studio Next, and register a profile with the pinned files and digest. Review the Transaction Kit fee quote before approving.
 4. Check the submitted transaction in the explorer. Refresh finalized state after finalization, select the profile and submit an audit.
 5. Refresh finalized receipts, open a receipt and download its actual evidence JSON.
 
-No Bradbury v2 deployment address has been fabricated or preconfigured. Local storage remembers the contract and pending transaction for this browser/account. For a shared default address, set `NEXT_PUBLIC_MODELSEAL_ADDRESS` on Vercel and redeploy after the contract is verified.
+No Studio Next deployment address has been fabricated or preconfigured. Local storage remembers the Studio Next contract for this browser. For a shared default address, set `NEXT_PUBLIC_MODELSEAL_ADDRESS` on Vercel and redeploy after the contract is verified. The historical Bradbury deployment remains evidence of the earlier build, but it does not satisfy the Agent Tank Studio Next requirement.
 
 ## Development and checks
 
 ```sh
 npm ci
 npm run build
-python -B -m pytest -q tests
-python -X utf8 -m genvm_linter.cli check contracts/modelseal.py
+python -B -m pytest -q
+genvm-lint contracts/modelseal.py
 npx playwright install chromium
 npx playwright test
 ```
 
-Python tests require `genlayer-test`/gltest and genvm-linter. Runtime tests execute against the locally installed GenVM SDK with mocked HTTP and LLM boundaries; they do not prove distributed Bradbury settlement. Browser tests use a mocked wallet. The app can be run with `npm run dev` or deployed with `npx vercel --prod`.
+Python dependencies are pinned to the v0.6-compatible prerelease branches in `requirements.txt`. Runtime tests execute against the RC5 GenVM runner with mocked HTTP and LLM boundaries; they do not prove distributed Studio Next settlement. Browser tests use a mocked wallet. The app can be run with `npm run dev` or deployed with `npx vercel --prod`.
 
 ## Limits
 

@@ -11,7 +11,7 @@ def test_live_challenge_and_replay_in_genvm(direct_vm, direct_deploy_compat):
     direct_vm.mock_web(r'.*raw\.githubusercontent\.com/example/modelseal/a{40}/suite\.json.*',{'status':200,'body':suite_raw})
     direct_vm.mock_web(r'.*raw\.githubusercontent\.com/example/modelseal/a{40}/baseline\.json.*',{'status':200,'body':baseline})
     direct_vm.mock_web(r'.*agent\.acme\.com/challenge.*',{'method':'POST','status':200,'body':json.dumps({'nonce':nonce,'probe_id':'explain','output':'Repeating does not duplicate its effect.'})})
-    direct_vm.mock_llm(r'.*Compare endpoint outputs.*',json.dumps({'summary':'Same behavior.','probes':[{'id':'explain','verdict':'MATCH','reason':'Equivalent effect.'}]}))
+    direct_vm.mock_llm(r'.*Compare endpoint outputs.*',json.dumps(json.dumps({'summary':'Same behavior.','probes':[{'id':'explain','verdict':'MATCH','reason':'Equivalent effect.'}]})))
     c=direct_deploy_compat(str(Path(__file__).parents[2]/'contracts/modelseal.py'))
     c.register_endpoint('Agent','https://agent.acme.com/challenge','Declared',f'https://github.com/example/modelseal/blob/{sha}/suite.json',f'https://github.com/example/modelseal/blob/{sha}/baseline.json',hashlib.sha256(baseline.encode()).hexdigest())
     r=c.audit_endpoint('1',nonce)

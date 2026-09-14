@@ -29,8 +29,8 @@ def env():
     def request(url,**kwargs):
         calls.append(('POST',url,json.loads(kwargs['body'])))
         return response(json.dumps({'nonce':state['nonce'],'probe_id':'explain','output':state['output']}).encode(),state['status'])
-    gl=types.SimpleNamespace(Contract=object,public=types.SimpleNamespace(write=lambda f:f,view=lambda f:f),vm=types.SimpleNamespace(UserError=ValueError),message=types.SimpleNamespace(sender_address=types.SimpleNamespace(as_hex='0xOwner')),nondet=types.SimpleNamespace(web=types.SimpleNamespace(get=get,request=request),exec_prompt=lambda *a,**kw:state['answer']),eq_principle=types.SimpleNamespace(prompt_comparative=lambda fn,**kw:fn()))
-    stub=types.ModuleType('genlayer');stub.gl=gl;stub.TreeMap=TreeMap;stub.u256=int
+    gl=types.ModuleType('genlayer');gl.contract=types.SimpleNamespace(Contract=object);gl.storage=types.SimpleNamespace(TreeMap=TreeMap);gl.u256=int;gl.public=types.SimpleNamespace(write=lambda f:f,view=lambda f:f);gl.vm=types.SimpleNamespace(UserError=ValueError);gl.message=types.SimpleNamespace(sender_address=types.SimpleNamespace(as_hex='0xOwner'));gl.nondet=types.SimpleNamespace(web=types.SimpleNamespace(get=get,request=request),exec_prompt=lambda *a,**kw:json.dumps(state['answer']));gl.eq_principle=types.SimpleNamespace(prompt_comparative=lambda fn,*args,**kw:fn())
+    stub=gl
     old=sys.modules.get('genlayer');sys.modules['genlayer']=stub
     try:
         spec=importlib.util.spec_from_file_location('modelseal_test',Path(__file__).parents[1]/'contracts/modelseal.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

@@ -43,7 +43,7 @@ test('connect, switch, disconnect, reload and reconnect', async ({ page }) => {
   await page
     .getByRole('button', { name: 'Connect wallet', exact: true })
     .click();
-  await expect(page.getByText('Bradbury connected')).toBeVisible();
+  await expect(page.getByText('Studio Next connected')).toBeVisible();
   await page.getByRole('button', { name: 'Disconnect', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Connect wallet', exact: true }),
