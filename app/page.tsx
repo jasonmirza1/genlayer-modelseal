@@ -147,7 +147,7 @@ export default function Home() {
     const saved =
       localStorage.getItem('modelseal.contract.studio-next') ??
       process.env.NEXT_PUBLIC_MODELSEAL_ADDRESS ??
-      '';
+      '0x5fA12728120D6713671e5a18F79470994380F12D';
     if (isAddress(saved)) {
       setAddress(saved);
       setAddressInput(saved);

@@ -5,7 +5,7 @@ import { TransactionHashVariant } from 'genlayer-js/types';
 export const EXPLORER = 'https://explorer-studio-dev.genlayer.com';
 export const STUDIO_NEXT_RPC =
   process.env.NEXT_PUBLIC_GENLAYER_RPC_URL ??
-  'https://studio-next.genlayer.com/api';
+  'https://studio-dev.genlayer.com/api';
 // Consensus addresses in studioDevnet belong to this network, not an arbitrary
 // chain ID supplied via an environment variable.
 export const STUDIO_NEXT_CHAIN_ID = 61997;

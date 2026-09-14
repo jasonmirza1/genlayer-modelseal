@@ -53,7 +53,7 @@ The executable suite is `probe-suites/v2.json`; its matching reference is `examp
 4. Check the submitted transaction in the explorer. Refresh finalized state after finalization, select the profile and submit an audit.
 5. Refresh finalized receipts, open a receipt and download its actual evidence JSON.
 
-No Studio Next deployment address has been fabricated or preconfigured. Local storage remembers the Studio Next contract for this browser. For a shared default address, set `NEXT_PUBLIC_MODELSEAL_ADDRESS` on Vercel and redeploy after the contract is verified. The historical Bradbury deployment remains evidence of the earlier build, but it does not satisfy the Agent Tank Studio Next requirement.
+The verified Studio Dev deployment is `0x5fA12728120D6713671e5a18F79470994380F12D`; deployment transaction `0x835ff9eb666f15fc51721f17fa1bc4b237537c84b7fb4d9939a47a51245b6e6e` completed with successful GenVM execution. Local storage remembers an explicitly selected Studio Dev contract for this browser. The historical Bradbury deployment remains evidence of the earlier build, but it does not satisfy the Agent Tank Studio Next requirement.
 
 ## Development and checks
 

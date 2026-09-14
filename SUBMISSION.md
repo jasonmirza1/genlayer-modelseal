@@ -1,6 +1,6 @@
 # ModelSeal — submission draft (v2)
 
-Do not claim a live on-chain demonstration until the corrected contract is deployed and a real audit transaction is finalized successfully.
+The corrected contract is deployed on Studio Dev at `0x5fA12728120D6713671e5a18F79470994380F12D`. Do not claim a completed live audit until a new Studio Dev audit transaction is finalized successfully.
 
 Website: https://modelseal.vercel.app
 

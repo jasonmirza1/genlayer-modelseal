@@ -4,7 +4,7 @@ import { fromRlp, hexToBytes, toHex } from 'viem';
 
 const contract = '0x2222222222222222222222222222222222222222';
 async function mockFinalizedContract(page: Page) {
-  await page.route('https://studio-next.genlayer.com/api', async (route) => {
+  await page.route('https://studio-dev.genlayer.com/api', async (route) => {
     const body = route.request().postDataJSON();
     if (body.method !== 'gen_call') {
       await route.fulfill({
@@ -64,6 +64,19 @@ async function loadTestContract(page: Page) {
   await page
     .getByRole('button', { name: 'Connect wallet', exact: true })
     .click();
+}
+
+async function mockUnavailableContract(page: Page) {
+  await page.route('https://studio-dev.genlayer.com/api', async (route) => {
+    const body = route.request().postDataJSON();
+    await route.fulfill({
+      json: {
+        jsonrpc: '2.0',
+        id: body.id,
+        error: { code: -32000, message: 'Unavailable in test' },
+      },
+    });
+  });
 }
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -126,6 +139,7 @@ test('connect, switch, disconnect, reload and reconnect', async ({ page }) => {
   ).toBeVisible();
 });
 test('mobile wallet and navigation remain accessible', async ({ page }) => {
+  await mockUnavailableContract(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page
@@ -151,6 +165,7 @@ test('mobile wallet and navigation remain accessible', async ({ page }) => {
   ).toBe(true);
 });
 test('no deployment means no fabricated audit result', async ({ page }) => {
+  await mockUnavailableContract(page);
   await page.goto('/');
   await expect(
     page.getByRole('button', { name: 'Submit live audit' }),
