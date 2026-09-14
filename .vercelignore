@@ -1,0 +1,9 @@
+.pytest_cache
+artifacts
+coverage
+demo
+playwright-report
+test-results
+__pycache__
+*.pyc
+.git
