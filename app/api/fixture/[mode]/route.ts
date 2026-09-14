@@ -27,9 +27,14 @@ export async function POST(
   if (
     !data ||
     typeof data !== 'object' ||
+    data.schema !== 'modelseal.challenge.v2' ||
+    typeof data.probe_id !== 'string' ||
     !Object.hasOwn(outputs, data.probe_id) ||
-    !/^[0-9a-f]{32,64}$/.test(data.nonce ?? '') ||
-    typeof data.prompt !== 'string'
+    typeof data.nonce !== 'string' ||
+    !/^(?:[0-9a-f]{2}){16,32}$/.test(data.nonce) ||
+    typeof data.prompt !== 'string' ||
+    !data.prompt.trim() ||
+    data.prompt.length > 1000
   )
     return Response.json({ error: 'Invalid challenge' }, { status: 400 });
   return Response.json(

@@ -1,7 +1,7 @@
 'use client';
 /* oxlint-disable react/react-compiler -- browser wallet and finalized-chain state are synchronized by effects */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Fingerprint,
   Wallet,
@@ -11,7 +11,12 @@ import {
   Play,
   Download,
 } from 'lucide-react';
-import { createTransactionKit } from '@genlayer/transaction-kit';
+import {
+  createTransactionKit,
+  type TransactionKit,
+} from '@genlayer/transaction-kit';
+import { isSuccessful } from 'genlayer-js';
+import type { Hash } from 'genlayer-js/types';
 import {
   GenLayerTransactionPanel,
   type SubmitInput,
@@ -19,12 +24,21 @@ import {
 } from '@genlayer/transaction-kit-react';
 import {
   read,
+  client,
   isAddress,
   EXPLORER,
   NETWORK,
   STUDIO_NEXT_CHAIN,
   STUDIO_NEXT_CHAIN_ID,
 } from '@/lib/chain';
+import {
+  PENDING_KEY,
+  loadPending,
+  protectTransactions,
+  finalizedSuccess,
+  settled,
+  type PendingRecord,
+} from '@/lib/transaction-safety';
 
 type Injected = {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
@@ -105,26 +119,27 @@ export default function Home() {
   const [pendingTx, setPendingTx] = useState<{
     label: string;
     tx: SubmitInput;
+    kit: TransactionKit;
   } | null>(null);
+  const [pendingRecord, setPendingRecord] = useState<PendingRecord | null>(
+    null,
+  );
+  const [recoveryError, setRecoveryError] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [provider, setProvider] = useState<Injected | undefined>(undefined);
   const providerRef = useRef<Injected | undefined>(undefined);
   const disconnected = useRef(false);
   const generation = useRef(0);
+  const readGeneration = useRef(0);
   const selectedProfile = profiles.find((p) => p.id === selected);
   const ready =
     verified &&
     !!account &&
     parseInt(chain, 16) === STUDIO_NEXT_CHAIN_ID &&
-    !busy;
-  const transactionKit = useMemo(() => {
-    const provider = providerRef.current;
-    if (!provider || !account || parseInt(chain, 16) !== STUDIO_NEXT_CHAIN_ID)
-      return null;
-    return createTransactionKit({
-      chain: STUDIO_NEXT_CHAIN,
-      provider,
-      account: account as `0x${string}`,
-    });
-  }, [account, chain]);
+    !busy &&
+    !pendingTx &&
+    !pendingRecord &&
+    !recoveryError;
 
   useEffect(() => {
     // Initialization intentionally synchronizes persisted browser state once.
@@ -139,11 +154,22 @@ export default function Home() {
     }
     disconnected.current =
       localStorage.getItem('modelseal.wallet.disconnected') === '1';
+    try {
+      setPendingRecord(loadPending(localStorage));
+    } catch (e) {
+      setRecoveryError(errorText(e));
+    }
     const p = getProvider();
     providerRef.current = p;
+    setProvider(p);
+  }, []);
+  useEffect(() => {
+    const p = provider;
     if (!p) return;
+    let active = true;
+    const token = generation.current;
     const accounts = (v: unknown) => {
-      if (!disconnected.current)
+      if (active && !disconnected.current)
         setAccount(Array.isArray(v) && typeof v[0] === 'string' ? v[0] : '');
     };
     const chains = (v: unknown) => setChain(String(v));
@@ -151,17 +177,20 @@ export default function Home() {
     p.on?.('chainChanged', chains);
     void p
       .request({ method: 'eth_accounts' })
-      .then(accounts)
+      .then((v) => {
+        if (generation.current === token) accounts(v);
+      })
       .catch(() => {});
     void p
       .request({ method: 'eth_chainId' })
       .then(chains)
       .catch(() => {});
     return () => {
+      active = false;
       p.removeListener?.('accountsChanged', accounts);
       p.removeListener?.('chainChanged', chains);
     };
-  }, []);
+  }, [provider]);
   async function connect() {
     setError('');
     setWalletBusy(true);
@@ -173,6 +202,7 @@ export default function Home() {
           'Open this site in the OKX wallet browser or install an EVM wallet extension.',
         );
       providerRef.current = p;
+      setProvider(p);
       const accounts = (await p.request({
         method: 'eth_requestAccounts',
       })) as string[];
@@ -227,7 +257,11 @@ export default function Home() {
     }
   }
   const refresh = useCallback(async () => {
-    if (!isAddress(address)) return;
+    const token = ++readGeneration.current;
+    if (!isAddress(address)) {
+      setBusy(false);
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -236,7 +270,14 @@ export default function Home() {
         receipts: number;
         version: string;
       };
-      if (c.version !== '2')
+      if (
+        !c ||
+        c.version !== '2' ||
+        !Number.isSafeInteger(c.profiles) ||
+        !Number.isSafeInteger(c.receipts) ||
+        c.profiles < 0 ||
+        c.receipts < 0
+      )
         throw new Error(
           'This address is not a ModelSeal v2 deployment. Deploy the corrected contract first.',
         );
@@ -244,6 +285,9 @@ export default function Home() {
         read(address, 'list_profiles', [profileOffset, 20]),
         read(address, 'list_receipts', [receiptOffset, 20]),
       ]);
+      if (token !== readGeneration.current) return;
+      if (!Array.isArray(p) || !Array.isArray(r))
+        throw new Error('Invalid finalized contract page.');
       setCounts(c);
       setProfiles(p as Profile[]);
       setReceipts(r as Receipt[]);
@@ -254,27 +298,62 @@ export default function Home() {
           : ((p as Profile[])[0]?.id ?? ''),
       );
     } catch (e) {
+      if (token !== readGeneration.current) return;
       setVerified(false);
       setProfiles([]);
       setReceipts([]);
+      setCounts({ profiles: 0, receipts: 0 });
+      setDetail(null);
       setError(errorText(e));
     } finally {
-      setBusy(false);
+      if (token === readGeneration.current) setBusy(false);
     }
   }, [address, profileOffset, receiptOffset]);
   useEffect(() => {
     // Contract/page changes invalidate the prior finalized-state snapshot.
+    const tracker = readGeneration;
     // oxlint-disable-next-line react/react-compiler
     setVerified(false);
     setDetail(null);
     void refresh();
+    return () => {
+      ++tracker.current;
+    };
   }, [refresh]);
+  const recordChanged = useCallback((record: PendingRecord | null) => {
+    setPendingRecord(record);
+    if (record && settled(record.status)) {
+      if (record.status && finalizedSuccess(record.status)) {
+        setNotice(
+          'Transaction finalized successfully. Refresh finalized state to inspect the result.',
+        );
+      } else {
+        setError(
+          `Transaction ended without confirmed execution success: ${record.status?.executionResultName ?? record.status?.statusName ?? 'unknown'}. Inspect explorer before retrying.`,
+        );
+      }
+    }
+  }, []);
   function prepareWrite(label: string, method: string, args: string[]) {
-    if (!ready || !transactionKit || !isAddress(address)) return;
+    const p = providerRef.current;
+    if (!ready || !p || !isAddress(address)) return;
     setError('');
     setNotice('Review the Studio Next fee quote before signing.');
     setPendingTx({
       label,
+      kit: protectTransactions(
+        (guardedProvider) =>
+          createTransactionKit({
+            chain: STUDIO_NEXT_CHAIN,
+            provider: guardedProvider,
+            account: account as `0x${string}`,
+          }),
+        p,
+        { label, address, account, chainId: STUDIO_NEXT_CHAIN_ID },
+        localStorage,
+        recordChanged,
+        () => !disconnected.current && providerRef.current === p,
+      ),
       tx: {
         kind: 'write',
         address: address as `0x${string}`,
@@ -283,28 +362,69 @@ export default function Home() {
       },
     });
   }
-  async function transactionDone(status: TrackedStatus) {
-    if (status.successful === false) {
+  async function checkPending() {
+    if (!pendingRecord?.genlayerTxId || checking) return;
+    setChecking(true);
+    try {
+      const result = await client().getTransaction({
+        hash: pendingRecord.genlayerTxId as Hash,
+      });
+      const final =
+        result.statusName === 'FINALIZED' ||
+        String(result.status) === '7' ||
+        String(result.status) === 'FINALIZED';
+      const canceled =
+        result.statusName === 'CANCELED' ||
+        String(result.status) === '8' ||
+        String(result.status) === 'CANCELED';
+      const status: TrackedStatus = {
+        phase: final ? 'finalized' : 'pending',
+        statusName: final
+          ? 'FINALIZED'
+          : canceled
+            ? 'CANCELED'
+            : (result.statusName ?? String(result.status)),
+        genlayerTxId: pendingRecord.genlayerTxId,
+        executionResultName: result.txExecutionResultName,
+        ...(final || canceled
+          ? { successful: !canceled && isSuccessful(result) }
+          : {}),
+      };
+      const next: PendingRecord = {
+        ...pendingRecord,
+        stage: settled(status) ? 'finalized' : 'submitted',
+        status,
+      };
+      localStorage.setItem(PENDING_KEY, JSON.stringify(next));
+      recordChanged(next);
+      if (final) await refresh();
+    } catch (e) {
       setError(
-        `Transaction completed without a successful outcome: ${status.executionResultName ?? status.statusName ?? 'unknown'}.`,
+        `Could not confirm the transaction: ${errorText(e)} Do not resubmit blindly.`,
       );
-      return;
+    } finally {
+      setChecking(false);
     }
-    setNotice(
-      'Transaction finalized successfully. Refreshing finalized Studio Next state.',
-    );
+  }
+  function clearRecovery() {
+    if (
+      !settled(pendingRecord?.status) &&
+      !window.confirm(
+        'Only clear this record after checking your wallet activity, explorer and finalized contract state. A pending transaction can still execute. Have you checked?',
+      )
+    )
+      return;
+    localStorage.removeItem(PENDING_KEY);
+    setPendingRecord(null);
     setPendingTx(null);
-    await refresh();
+    setRecoveryError('');
   }
   function applyAddress() {
     if (!isAddress(addressInput.trim())) {
       setError('Enter a valid deployed contract address.');
       return;
     }
-    localStorage.setItem(
-      'modelseal.contract.studio-next',
-      addressInput.trim(),
-    );
+    localStorage.setItem('modelseal.contract.studio-next', addressInput.trim());
     setProfiles([]);
     setReceipts([]);
     setDetail(null);
@@ -444,12 +564,80 @@ export default function Home() {
             {error}
           </div>
         )}
-        {notice && (
-          <output className="message">
-            {notice}
-          </output>
+        {notice && <output className="message">{notice}</output>}
+        {(pendingRecord || recoveryError) && (
+          <section
+            className="panel configuration"
+            aria-label="Transaction recovery"
+          >
+            <h2>Transaction recovery</h2>
+            <p>
+              {recoveryError ||
+                `${pendingRecord!.label} · ${pendingRecord!.status?.statusName ?? pendingRecord!.stage}`}
+            </p>
+            {pendingRecord && (
+              <>
+                <p className="subtle">
+                  Wallet: {pendingRecord.account}
+                  <br />
+                  Contract: {pendingRecord.address}
+                </p>
+                <p>
+                  {pendingRecord.genlayerTxId ? (
+                    <a
+                      href={`${EXPLORER}/tx/${pendingRecord.genlayerTxId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open recorded transaction ↗
+                    </a>
+                  ) : (
+                    'Submission outcome is not confirmed. Check your wallet activity and contract explorer before retrying.'
+                  )}
+                </p>
+                {pendingRecord.evmTxHash && (
+                  <p className="subtle">
+                    Chain transaction: {pendingRecord.evmTxHash}
+                  </p>
+                )}
+              </>
+            )}
+            <p>
+              Reloading never resubmits a transaction. Other writes stay
+              disabled until you resolve this record.
+            </p>
+            <div className="inline-form">
+              <button
+                className="secondary"
+                disabled={
+                  !pendingRecord?.genlayerTxId ||
+                  checking ||
+                  (!!pendingTx &&
+                    pendingRecord?.stage !== 'unknown' &&
+                    !settled(pendingRecord?.status))
+                }
+                onClick={() => void checkPending()}
+              >
+                {checking ? 'Checking…' : 'Check recorded transaction'}
+              </button>
+              <button
+                className="secondary"
+                disabled={
+                  checking ||
+                  (!settled(pendingRecord?.status) &&
+                    (!!pendingRecord?.genlayerTxId ||
+                      (!!pendingTx && pendingRecord?.stage !== 'unknown')))
+                }
+                onClick={clearRecovery}
+              >
+                {settled(pendingRecord?.status)
+                  ? 'Dismiss completed transaction'
+                  : 'Clear after manual verification'}
+              </button>
+            </div>
+          </section>
         )}
-        {pendingTx && transactionKit && (
+        {pendingTx && (
           <section className="panel configuration">
             <div className="transaction-heading">
               <div>
@@ -458,18 +646,18 @@ export default function Home() {
               </div>
               <button
                 className="secondary"
+                disabled={pendingRecord?.stage === 'signing'}
                 onClick={() => setPendingTx(null)}
               >
-                Close
+                {pendingRecord ? 'Hide fee panel' : 'Close unsigned review'}
               </button>
             </div>
             <GenLayerTransactionPanel
-              kit={transactionKit}
+              kit={pendingTx.kit}
               tx={pendingTx.tx}
               network="GenLayer Studio Next"
               theme="dark"
               trackUntil="finalized"
-              onDone={(status) => void transactionDone(status)}
             />
           </section>
         )}

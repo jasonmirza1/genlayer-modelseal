@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "oxlint",
+    "test": "node --experimental-strip-types --test tests/transaction-safety.test.mjs",
     "format": "oxfmt"
   },
   "dependencies": {

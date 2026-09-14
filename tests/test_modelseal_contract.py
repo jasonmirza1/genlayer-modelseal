@@ -93,3 +93,62 @@ def test_deactivation_owner_and_pagination(env):
 def test_inconclusive_consumes_nonce(env):
     obj,state,_,_=env;state['status']=503;obj.audit_endpoint('1',NONCE)
     with pytest.raises(ValueError,match='already used'):obj.audit_endpoint('1',NONCE)
+
+@pytest.mark.parametrize('nonce', ['a'*31, 'a'*33, 'a'*63, 'a'*65, 'A'*48])
+def test_nonce_requires_whole_lowercase_bytes(env, nonce):
+    obj,_,calls,_=env
+    with pytest.raises(ValueError, match='nonce'):obj.audit_endpoint('1',nonce)
+    assert calls == [] and obj.receipt_count == 0
+
+@pytest.mark.parametrize('field', ['summary', 'reason', 'output', 'prompt', 'rubric', 'baseline'])
+def test_whitespace_is_not_evidence(env, field):
+    obj,state,_,_=env
+    if field == 'summary': state['answer']['summary'] = '  \n'
+    elif field == 'reason': state['answer']['probes'][0]['reason'] = '  '
+    elif field == 'output': state['output'] = '  '
+    else:
+        suite=json.loads(state['suite']); baseline=json.loads(state['base'])
+        if field == 'baseline': baseline['responses']['explain'] = '  '
+        else: suite['probes'][0][field] = '  '
+        state['suite']=json.dumps(suite).encode()
+        baseline['suite_sha256']=hashlib.sha256(state['suite']).hexdigest()
+        state['base']=json.dumps(baseline).encode()
+        profile=json.loads(obj.profiles['1'])
+        profile['baseline_digest']=hashlib.sha256(state['base']).hexdigest()
+        obj.profiles['1']=json.dumps(profile)
+    assert obj.audit_endpoint('1',NONCE)['status'] == 'INCONCLUSIVE'
+
+def test_oversized_comparison_fails_closed(env):
+    obj,state,_,_=env
+    state['answer']['extra']='x'*16001
+    assert obj.audit_endpoint('1',NONCE)['status']=='INCONCLUSIVE'
+
+@pytest.mark.parametrize('mutation', [
+    lambda r:r.update(status='DRIFT_DETECTED'),
+    lambda r:r.update(probes=[]),
+    lambda r:r.update(baseline_verified=False),
+    lambda r:r.update(baseline_verified=1),
+    lambda r:r.update(suite_sha256=''),
+    lambda r:r.update(observations=[]),
+    lambda r:r['observations'][0].update(response_sha256='bogus'),
+    lambda r:r['observations'][0].update(output=' '),
+    lambda r:r['observations'].append(r['observations'][0]),
+    lambda r:r['probes'][0].update(verdict='INCONCLUSIVE'),
+    lambda r:r['probes'][0].update(id='other'),
+    lambda r:r.update(summary=' '),
+    lambda r:r.update(extra='untrusted'),
+])
+def test_consensus_boundary_rejects_forged_success_without_state_change(env, mutation):
+    obj,_,_,gl=env
+    result=obj._collect(json.loads(obj.profiles['1']),NONCE)
+    mutation(result)
+    gl.eq_principle.prompt_comparative=lambda *args:result
+    with pytest.raises(ValueError):obj.audit_endpoint('1',NONCE)
+    assert obj.receipt_count == 0 and not obj.receipts and not obj.used_nonces
+
+def test_genuine_ambiguous_verdict_preserves_verified_evidence(env):
+    obj,state,_,_=env
+    state['answer']['probes'][0]['verdict']='INCONCLUSIVE'
+    result=obj.audit_endpoint('1',NONCE)
+    assert result['status']=='INCONCLUSIVE' and result['baseline_verified']
+    assert len(result['observations'])==1

@@ -1,4 +1,70 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+import { abi } from 'genlayer-js';
+import { fromRlp, hexToBytes, toHex } from 'viem';
+
+const contract = '0x2222222222222222222222222222222222222222';
+async function mockFinalizedContract(page: Page) {
+  await page.route('https://studio-next.genlayer.com/api', async (route) => {
+    const body = route.request().postDataJSON();
+    if (body.method !== 'gen_call') {
+      await route.fulfill({
+        json: {
+          jsonrpc: '2.0',
+          id: body.id,
+          error: {
+            code: -32601,
+            message: 'No fee estimates in this read-only test',
+          },
+        },
+      });
+      return;
+    }
+    expect(body.params[0].transaction_hash_variant).toBe('latest-final');
+    const encoded = fromRlp(body.params[0].data, 'hex') as `0x${string}`[];
+    const call = abi.calldata.decode(hexToBytes(encoded[0])) as Map<
+      string,
+      unknown
+    >;
+    const method = call.get('');
+    const profile = {
+      id: '1',
+      owner: '0x1111111111111111111111111111111111111111',
+      name: 'Test fixture',
+      endpoint: 'https://modelseal.vercel.app/api/fixture/baseline',
+      claimed_model: 'Programmed fixture',
+      probe_suite_url: 'https://github.com/example/repo',
+      baseline_url: 'https://github.com/example/repo',
+      baseline_digest: 'a'.repeat(64),
+      active: true,
+    };
+    const result =
+      method === 'get_counts'
+        ? { profiles: 1, receipts: 0, version: '2' }
+        : method === 'list_profiles'
+          ? [profile]
+          : [];
+    await route.fulfill({
+      json: {
+        jsonrpc: '2.0',
+        id: body.id,
+        result: toHex(abi.calldata.encode(result)),
+      },
+    });
+  });
+}
+
+async function loadTestContract(page: Page) {
+  await page.getByLabel('Studio Next ModelSeal contract').fill(contract);
+  await page
+    .getByRole('button', { name: 'Load contract', exact: true })
+    .click();
+  await expect(
+    page.getByText('Reading finalized state on Studio Next.'),
+  ).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Connect wallet', exact: true })
+    .click();
+}
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const handlers: Record<string, ((v: unknown) => void)[]> = {};
@@ -100,6 +166,7 @@ test('fixture endpoint binds nonce and exposes deliberate drift', async ({
   request,
 }) => {
   const data = {
+    schema: 'modelseal.challenge.v2',
     nonce: 'a'.repeat(48),
     probe_id: 'idempotency',
     prompt: 'Explain',
@@ -111,4 +178,95 @@ test('fixture endpoint binds nonce and exposes deliberate drift', async ({
   expect((await bad.json()).output).toContain('ignore');
   const invalid = await request.post('/api/fixture/invalid', { data });
   expect((await invalid.json()).nonce).not.toBe(data.nonce);
+  expect(
+    (
+      await request.post('/api/fixture/baseline', {
+        data: { ...data, nonce: 'a'.repeat(33) },
+      })
+    ).status(),
+  ).toBe(400);
+});
+
+test('an unsigned fee review blocks replacement until explicitly closed', async ({
+  page,
+}) => {
+  await mockFinalizedContract(page);
+  await page.goto('/');
+  await loadTestContract(page);
+  const audit = page.getByRole('button', {
+    name: 'Submit live audit',
+    exact: true,
+  });
+  await expect(audit).toBeEnabled();
+  await audit.click();
+  await expect(
+    page.getByRole('heading', { name: 'Run live endpoint audit' }),
+  ).toBeVisible();
+  await expect(audit).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: 'Load contract', exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole('button', { name: 'Close unsigned review', exact: true })
+    .click();
+  await expect(audit).toBeEnabled();
+});
+
+test('reload preserves pending hash, wallet scope, and duplicate-write lock', async ({
+  page,
+}) => {
+  await page.addInitScript(
+    ({ address }) => {
+      localStorage.setItem(
+        'modelseal.pending.studio-next.v1',
+        JSON.stringify({
+          version: 1,
+          account: '0x1111111111111111111111111111111111111111',
+          address,
+          chainId: 61997,
+          label: 'Run live endpoint audit',
+          startedAt: '2026-09-14T00:00:00Z',
+          stage: 'submitted',
+          genlayerTxId: '0x' + 'a'.repeat(64),
+          status: {
+            phase: 'decided',
+            statusName: 'ACCEPTED',
+            successful: true,
+          },
+        }),
+      );
+    },
+    { address: contract },
+  );
+  await mockFinalizedContract(page);
+  await page.goto('/');
+  await loadTestContract(page);
+  await expect(
+    page.getByRole('button', { name: 'Submit live audit', exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole('link', { name: 'Open recorded transaction' }),
+  ).toHaveAttribute(
+    'href',
+    'https://explorer-studio-dev.genlayer.com/tx/0x' + 'a'.repeat(64),
+  );
+  await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'Transaction recovery' }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('Run live endpoint audit · ACCEPTED'),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Clear after manual verification' }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: 'Submit live audit', exact: true }),
+  ).toBeDisabled();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
 });

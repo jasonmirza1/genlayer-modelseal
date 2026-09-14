@@ -15,12 +15,16 @@ ModelSeal compares observable AI endpoint behavior against an operator-declared 
 
 The dashboard uses `genlayer-js@2.0.0-rc.1` and Transaction Kit RC2 with the actual selected wallet provider. Reads use `LATEST_FINAL`; every write is quoted through the fee-aware review panel and requires wallet confirmation. It tracks through finalization and separates consensus status from execution success. No background retry or sample analytics are generated.
 
+Fee reviews cannot replace an unresolved write. The wallet and chain are checked again before signing. A browser-local recovery record retains the action, wallet, contract and available transaction hashes through reloads and RPC failures. Use **Check recorded transaction** to re-read its outcome; only confirmed finalization with successful execution is reported as success. A missing hash is an unknown outcome, not permission to retry: inspect wallet activity and finalized state first. Recovery is local to this browser, not a global transaction index.
+
+After consensus, deterministic checks reject unsupported success labels, missing/duplicate observations, malformed hashes, unverified baselines, contradictory per-probe verdicts and whitespace-only evidence. These checks complement semantic consensus; they do not independently prove the truth of an endpoint's responses.
+
 ## Endpoint protocol
 
 Accept `POST` with `Content-Type: application/json`:
 
 ```json
-{"schema":"modelseal.challenge.v2","nonce":"<32–64 lowercase hex characters>","probe_id":"idempotency","prompt":"Explain safe payment retries."}
+{"schema":"modelseal.challenge.v2","nonce":"<16–32 bytes as an even number of lowercase hex characters>","probe_id":"idempotency","prompt":"Explain safe payment retries."}
 ```
 
 Return HTTP 200 JSON:
@@ -55,14 +59,16 @@ No Studio Next deployment address has been fabricated or preconfigured. Local st
 
 ```sh
 npm ci
+npm test
+npm run lint
 npm run build
-python -B -m pytest -q
-genvm-lint contracts/modelseal.py
+python -B -m pytest -q -p no:cacheprovider
+genvm-lint check --json contracts/modelseal.py
 npx playwright install chromium
 npx playwright test
 ```
 
-Python dependencies are pinned to the v0.6-compatible prerelease branches in `requirements.txt`. Runtime tests execute against the RC5 GenVM runner with mocked HTTP and LLM boundaries; they do not prove distributed Studio Next settlement. Browser tests use a mocked wallet. The app can be run with `npm run dev` or deployed with `npx vercel --prod`.
+Python dependencies are pinned to tested commits of the v0.6-compatible prereleases in `requirements.txt`. The two SDK integration tests execute with mocked HTTP and LLM boundaries; they do not prove distributed Studio Next settlement. Browser tests use a mocked wallet/RPC; transaction-safety tests exercise submission recovery and signing guards. The app can be run with `npm run dev` or deployed with `npx vercel --prod`.
 
 ## Limits
 
