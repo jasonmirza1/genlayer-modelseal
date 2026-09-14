@@ -1,4 +1,5 @@
 import importlib.util
+import base64
 import hashlib
 import json
 import sys
@@ -25,7 +26,9 @@ def env():
     def response(body,status=200):return types.SimpleNamespace(body=body,status=status)
     def get(url):
         calls.append(('GET',url))
-        return response(state['suite'] if url.endswith('suite.json') else state['base'])
+        raw = state['suite'] if '/suite.json?' in url else state['base']
+        envelope = {'type':'file','encoding':'base64','size':len(raw),'content':base64.b64encode(raw).decode()}
+        return response(json.dumps(envelope).encode())
     def request(url,**kwargs):
         calls.append(('POST',url,json.loads(kwargs['body'])))
         return response(json.dumps({'nonce':state['nonce'],'probe_id':'explain','output':state['output']}).encode(),state['status'])
@@ -48,6 +51,17 @@ def test_fetches_suite_baseline_and_posts_challenge(env):
     assert [c[0] for c in calls]==['GET','GET','POST']
     assert calls[-1][2]['nonce']==NONCE and calls[-1][2]['prompt']==SUITE['probes'][0]['prompt']
     assert r['observations'][0]['output']==state['output']
+    assert calls[0][1].startswith('https://api.github.com/repos/example/modelseal/contents/suite.json?ref=')
+
+def test_invalid_github_envelope_fails_closed(env):
+    obj,state,calls,_=env
+    original_get=obj._github_response
+    class BadResponse:
+        status=200
+        body=b'{"type":"dir","encoding":"base64","size":1,"content":"eA=="}'
+    obj._github_response=lambda response: original_get(BadResponse())
+    assert obj.audit_endpoint('1',NONCE)['status']=='INCONCLUSIVE'
+    assert not any(c[0]=='POST' for c in calls)
 
 def test_replay_rejected_without_network(env):
     obj,_,calls,_=env;obj.audit_endpoint('1',NONCE);before=len(calls)

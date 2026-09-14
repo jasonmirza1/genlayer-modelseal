@@ -1,11 +1,13 @@
 # { "Depends": "py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng" }
 import json
 import hashlib
+import base64
 import re
 from urllib.parse import urlsplit
 import genlayer as gl
 
 MAX_BYTES = 16000
+MAX_GITHUB_RESPONSE_BYTES = 30000
 MAX_RECORDS = 10000
 
 class ModelSeal(gl.contract.Contract):
@@ -49,7 +51,26 @@ class ModelSeal(gl.contract.Contract):
         if not match or any(x in ("", ".", "..") for x in match.group(4).split("/")):
             raise gl.vm.UserError("Use an immutable GitHub blob URL with a lowercase 40-character SHA")
         owner, repo, revision, path = match.groups()
-        return value, "https://raw.githubusercontent.com/" + owner + "/" + repo + "/" + revision + "/" + path
+        return value, "https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + path + "?ref=" + revision
+
+    def _github_response(self, response) -> tuple:
+        if response.status != 200 or not response.body or len(response.body) > MAX_GITHUB_RESPONSE_BYTES:
+            raise gl.vm.UserError("GitHub evidence request failed")
+        envelope = json.loads(response.body.decode("utf-8"))
+        if not isinstance(envelope, dict) or envelope.get("type") != "file" or envelope.get("encoding") != "base64":
+            raise gl.vm.UserError("Invalid GitHub evidence response")
+        content = envelope.get("content")
+        size = envelope.get("size")
+        if not isinstance(content, str) or not isinstance(size, int) or size < 1 or size > MAX_BYTES:
+            raise gl.vm.UserError("Invalid GitHub evidence metadata")
+        compact = re.sub(r"\s+", "", content)
+        raw = base64.b64decode(compact, validate=True)
+        if len(raw) != size:
+            raise gl.vm.UserError("GitHub evidence size mismatch")
+        data = json.loads(raw.decode("utf-8"))
+        if not isinstance(data, dict):
+            raise gl.vm.UserError("Evidence must be a JSON object")
+        return data, hashlib.sha256(raw).hexdigest()
 
     def _response(self, response) -> tuple:
         if response.status != 200 or len(response.body) > MAX_BYTES or not response.body:
@@ -65,8 +86,8 @@ class ModelSeal(gl.contract.Contract):
 
     def _collect(self, profile: dict, nonce: str) -> dict:
         try:
-            suite, suite_hash = self._response(gl.nondet.web.get(self._locked(profile["probe_suite_url"])[1]))
-            baseline, baseline_hash = self._response(gl.nondet.web.get(self._locked(profile["baseline_url"])[1]))
+            suite, suite_hash = self._github_response(gl.nondet.web.get(self._locked(profile["probe_suite_url"])[1]))
+            baseline, baseline_hash = self._github_response(gl.nondet.web.get(self._locked(profile["baseline_url"])[1]))
             if baseline_hash != profile["baseline_digest"] or baseline.get("suite_sha256") != suite_hash:
                 return self._inconclusive("Baseline digest or suite binding does not match")
             probes = suite.get("probes")
