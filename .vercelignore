@@ -7,7 +7,6 @@ test-results
 __pycache__
 *.pyc
 .git
-.openai
 .vinext
 .wrangler
 dist
