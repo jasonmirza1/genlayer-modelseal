@@ -1,5 +1,7 @@
 # ModelSeal — accepted v2 project reference
 
+For the new Audit Gate milestone, see [the exact delta and evidence ledger](docs/milestone-v1.md).
+
 Network: GenLayer **Studio Next** · RPC `https://studio-next.genlayer.com/api` · chain ID `61997` · explorer https://explorer-studio-dev.genlayer.com/
 
 Contract: [`0xA861e33d618E0B28429872f1743021dae57548b8`](https://explorer-studio-dev.genlayer.com/address/0xA861e33d618E0B28429872f1743021dae57548b8). Read-only finalized checks on October 8, 2026 returned `profiles=1, receipts=1, version=2`. Receipt #1 for endpoint #1 is CONSISTENT. No new deployment or wallet transaction is required to read that evidence.

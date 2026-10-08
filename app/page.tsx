@@ -2,6 +2,7 @@
 /* oxlint-disable react/react-compiler -- browser wallet and finalized-chain state are synchronized by effects */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AssuranceConsole } from '@/components/assurance-console';
 import {
   Fingerprint,
   Wallet,
@@ -74,7 +75,13 @@ type Receipt = {
   probes: { id: string; verdict: string; reason: string }[];
   observations: unknown[];
 };
-const tabs = ['Audit console', 'Endpoints', 'Probe suites', 'History'] as const;
+const tabs = [
+  'Audit console',
+  'Endpoints',
+  'Probe suites',
+  'History',
+  'Audit Gate',
+] as const;
 function getProvider() {
   return (
     window.okxwallet ??
@@ -580,8 +587,8 @@ export default function Home() {
             {pendingRecord?.outcome && (
               <p>
                 {describeOutcome(pendingRecord.outcome)} Round outcome:{' '}
-                <code>{pendingRecord.outcome.outcome || 'unknown'}</code> · leader
-                execution:{' '}
+                <code>{pendingRecord.outcome.outcome || 'unknown'}</code> ·
+                leader execution:{' '}
                 <code>
                   {pendingRecord.outcome.executionResultName || 'unknown'}
                 </code>
@@ -686,10 +693,11 @@ export default function Home() {
             />
             <p className="subtle">
               The fee panel reports the transaction status and the leader’s
-              execution result. Neither proves that validators accepted the round:
-              a rejected round still finalizes and still discards every state
-              change. ModelSeal resolves the round outcome itself and reports it
-              above, so treat this panel’s wording as progress, not as a result.
+              execution result. Neither proves that validators accepted the
+              round: a rejected round still finalizes and still discards every
+              state change. ModelSeal resolves the round outcome itself and
+              reports it above, so treat this panel’s wording as progress, not
+              as a result.
             </p>
           </section>
         )}
@@ -836,6 +844,14 @@ export default function Home() {
             </p>
           </section>
         )}
+        {tab === 'Audit Gate' && (
+          <AssuranceConsole
+            key={address}
+            address={address}
+            profiles={profiles}
+          />
+        )}
+
         {tab === 'Endpoints' && (
           <section className="panel configuration">
             <h2>Registered endpoints</h2>

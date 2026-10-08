@@ -4,6 +4,23 @@ Public dashboard: https://modelseal.vercel.app
 
 ModelSeal compares observable AI endpoint behavior against an operator-declared baseline using GenLayer comparative consensus. It cannot prove hidden model weights or exclude a proxy. Version 2 replaces the earlier simulated UI and unverified evidence-packet design.
 
+## Milestone: Audit Gate
+
+Audit Gate adds a walletless, read-only consumer API and dashboard policy for
+finalized v2 evidence. It checks the newest 1–5 consecutive receipts against
+explicit endpoint/baseline pins, with an optional suite hash, and blocks on
+drift, inconclusive results, malformed evidence, incomplete bounded history or
+failed/changing reads. An older passing receipt cannot hide a newer failure.
+
+Publication is approved; deployment verification is pending. This feature does
+not change the existing contract or require a new transaction. ALLOW means
+historical baseline consistency, not model identity, safety or freshness:
+v2 receipts have no audit timestamps.
+
+See [integration and trust boundaries](docs/audit-gate.md) and the
+[milestone delta ledger](docs/milestone-v1.md). The API is `GET /api/assurance`;
+the CLI example is `scripts/check-assurance.mjs`.
+
 ## Network
 
 | | |
@@ -107,13 +124,13 @@ The original Agent Tank submission was accepted; its earlier recording demonstra
 
 ```sh
 npm ci
-npm test                 # outcome and transaction-safety tests
+npm test                 # 103 policy, outcome and transaction-safety tests
 npm run lint
 npm run build
 python -B -m pytest -q -p no:cacheprovider   # 105 contract / GenVM tests
 genvm-lint check contracts/modelseal.py      # add --json for machine output
 npx playwright install chromium
-npx playwright test      # wallet/browser regressions
+npx playwright test      # 19 gate and wallet/browser regressions
 ```
 
 On Windows, set `PYTHONUTF8=1` before the Python commands so the linter can print its status glyphs.
