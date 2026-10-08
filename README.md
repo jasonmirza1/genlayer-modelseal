@@ -12,7 +12,8 @@ explicit endpoint/baseline pins, with an optional suite hash, and blocks on
 drift, inconclusive results, malformed evidence, incomplete bounded history or
 failed/changing reads. An older passing receipt cannot hide a newer failure.
 
-Publication is approved; deployment verification is pending. This feature does
+Audit Gate is published and deployed at [modelseal.vercel.app](https://modelseal.vercel.app),
+with production finalized-state checks verified on October 8, 2026. It does
 not change the existing contract or require a new transaction. ALLOW means
 historical baseline consistency, not model identity, safety or freshness:
 v2 receipts have no audit timestamps.

@@ -5,8 +5,14 @@ decision. An agent backend or endpoint router can require the newest **N
 consecutive** finalized audits to be consistent with its chosen endpoint and
 baseline. It is not a new audit, an access-control contract, or a certification.
 
-Publication is approved; production deployment verification is pending.
+The feature is published at [modelseal.vercel.app](https://modelseal.vercel.app).
+Production read-only checks were verified on October 8, 2026.
 The existing v2 contract does not change and does not need redeployment.
+
+For the existing programmed fixture, [minimum 1](https://modelseal.vercel.app/api/assurance?contract=0xA861e33d618E0B28429872f1743021dae57548b8&profile=1&endpoint=https%3A%2F%2Fgenlayer-modelseal.vercel.app%2Fapi%2Ffixture%2Fbaseline&baseline=389d1aaedc8b9a18d660b30a7e87b2ce05ffe97bca7d483a19eb19c6f8115e9f&min=1)
+returned ALLOW / HISTORY_MATCHED, while [minimum 2](https://modelseal.vercel.app/api/assurance?contract=0xA861e33d618E0B28429872f1743021dae57548b8&profile=1&endpoint=https%3A%2F%2Fgenlayer-modelseal.vercel.app%2Fapi%2Ffixture%2Fbaseline&baseline=389d1aaedc8b9a18d660b30a7e87b2ce05ffe97bca7d483a19eb19c6f8115e9f&min=2)
+returned BLOCK / INSUFFICIENT_HISTORY. These URLs re-evaluate current finalized
+state; they are not immutable proofs or claims about a real AI provider.
 
 ## What is checked
 

@@ -1,6 +1,7 @@
 # Proposed ModelSeal milestone v1: Audit Gate
 
-Status: reviewed; publication approved; deployment verification pending; not submitted.
+Status: published to jasonmirza1/genlayer-modelseal; production deployment verified;
+not submitted. A new milestone video has not been recorded or uploaded.
 Work started October 8, 2026. Milestone eligibility and points remain a steward
 decision; the accepted project is not being resubmitted.
 
@@ -25,8 +26,12 @@ At the start of this work, local HEAD was `7127ce6`, with substantial earlier
 uncommitted fixes already present. A fresh GitHub fetch showed public `origin/main`
 at `353cc74e71ff79fafa814dd364749646a611665a`. Therefore a future GitHub diff may
 contain earlier v2 corrections too. Those corrections are committed separately
-before the Audit Gate feature. Do not label them as newly built for this
-milestone. This ledger isolates the new consumer feature.
+before the Audit Gate feature. The [earlier-fixes commit](https://github.com/jasonmirza1/genlayer-modelseal/commit/9f3821e)
+is separate from the [Audit Gate commit](https://github.com/jasonmirza1/genlayer-modelseal/commit/0557fbfb235ec63abf0882f6f0b7fe30dcdb996d).
+Use the [feature-only delta](https://github.com/jasonmirza1/genlayer-modelseal/compare/9f3821e...0557fbf),
+not the whole accepted-project diff, to review this milestone. A subsequent
+packaging correction includes tracked hosting metadata needed by build type
+checks; it adds no contract or consensus functionality.
 
 ## New delta
 
@@ -108,21 +113,51 @@ This used real finalized RPC reads, without endpoint re-probing, signatures or
 wallet transactions. It is not a new deployment or an audit-freshness claim.
 The temporary local test server was stopped afterward.
 
-## Before submitting
+## Published deployment and separate evidence
 
-1. Review the local feature and tests, keeping earlier v2 corrections separately
-   identified in the GitHub history/delta.
-2. Publish the approved code and deploy the frontend/API only after authorization.
-3. Recheck the current trusted contract's finalized state without signing anything.
-4. Demonstrate a real read-only policy check; if only one receipt exists, require
+Production deployment `dpl_6fuxDHq9YZhvkr8L5RyD98vDsi4C` built successfully and
+was promoted to `https://modelseal.vercel.app` on October 8, 2026. Its source
+release is `77bae44` (the feature commit plus the packaging correction).
+The persisted production default contract is the existing accepted v2 address.
+Local videos, generated caches and unused capture helpers were not uploaded.
+
+Public production API and CLI checks returned ALLOW / HISTORY_MATCHED at
+`2026-10-08T13:18:30.261Z` for minimum 1 and the expected BLOCK /
+INSUFFICIENT_HISTORY at `2026-10-08T13:18:32.600Z` for minimum 2. Scope validation
+passed and both selected receipt #1. A wrong baseline pin returned POLICY_MISMATCH;
+an invalid query returned HTTP 400. Responses use private/no-store caching.
+The live browser also displayed the correct default address, finalized counts
+1/1, and both ALLOW and BLOCK while disconnected from a wallet. No audit,
+signature, endpoint re-probe or wallet transaction was performed for this work.
+
+Attach each item separately in the Portal:
+
+1. [Source repository](https://github.com/jasonmirza1/genlayer-modelseal).
+2. [New feature-only delta](https://github.com/jasonmirza1/genlayer-modelseal/compare/9f3821e...0557fbf).
+3. [Live dashboard](https://modelseal.vercel.app) — open Audit Gate.
+4. [Integration and trust boundaries](https://github.com/jasonmirza1/genlayer-modelseal/blob/main/docs/audit-gate.md).
+5. [Read-only minimum-1 API](https://modelseal.vercel.app/api/assurance?contract=0xA861e33d618E0B28429872f1743021dae57548b8&profile=1&endpoint=https%3A%2F%2Fgenlayer-modelseal.vercel.app%2Fapi%2Ffixture%2Fbaseline&baseline=389d1aaedc8b9a18d660b30a7e87b2ce05ffe97bca7d483a19eb19c6f8115e9f&min=1).
+6. [Read-only minimum-2 API](https://modelseal.vercel.app/api/assurance?contract=0xA861e33d618E0B28429872f1743021dae57548b8&profile=1&endpoint=https%3A%2F%2Fgenlayer-modelseal.vercel.app%2Fapi%2Ffixture%2Fbaseline&baseline=389d1aaedc8b9a18d660b30a7e87b2ce05ffe97bca7d483a19eb19c6f8115e9f&min=2).
+7. New silent screen recording / YouTube URL, once recorded and uploaded. No URL
+   is supplied here because this milestone's video is still outstanding.
+
+API URLs re-read current state and can change if the preview network resets or
+new receipts appear. They are not immutable storage proofs.
+
+## Manual submission handoff
+
+1. Review the published feature-only delta and evidence above. Earlier v2 fixes
+   remain separately identified and are not new milestone work.
+2. Recheck the current trusted contract's finalized state without signing anything.
+3. Demonstrate a real read-only policy check; if only one receipt exists, require
    two and show INSUFFICIENT_HISTORY. A deliberately wrong baseline pin can show
    POLICY_MISMATCH without an extra wallet transaction.
-5. Record a silent normal screen recording if a video is used. Do not present
+4. Record a silent normal screen recording if a video is used. Do not present
    mocked drift/outage tests as live chain evidence.
-6. Attach repository/diff, deployed app/API, integration documentation, report and
+5. Attach repository/diff, deployed app/API, integration documentation, report and
    any new demo video separately. Do not reuse the old video as proof of this feature.
-7. Fill the Portal milestone for the published ModelSeal project. The user reviews
+6. Fill the Portal milestone for the published ModelSeal project. The user reviews
    and submits manually.
 
-Do not say this feature is live until deployment is verified. Portal submission
-remains manual and no reward amount is promised.
+Portal submission remains manual and no reward amount is promised. The earlier
+Agent Tank video must not be relabeled as proof of this new feature.
