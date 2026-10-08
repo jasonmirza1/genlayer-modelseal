@@ -3,8 +3,9 @@ import { abi } from 'genlayer-js';
 import { fromRlp, hexToBytes, toHex } from 'viem';
 
 const contract = '0x2222222222222222222222222222222222222222';
+const RPC = 'https://studio-dev.genlayer.com/api';
 async function mockFinalizedContract(page: Page) {
-  await page.route('https://studio-dev.genlayer.com/api', async (route) => {
+  await page.route(RPC, async (route) => {
     const body = route.request().postDataJSON();
     if (body.method !== 'gen_call') {
       await route.fulfill({
@@ -67,7 +68,7 @@ async function loadTestContract(page: Page) {
 }
 
 async function mockUnavailableContract(page: Page) {
-  await page.route('https://studio-dev.genlayer.com/api', async (route) => {
+  await page.route(RPC, async (route) => {
     const body = route.request().postDataJSON();
     await route.fulfill({
       json: {
@@ -235,7 +236,7 @@ test('reload preserves pending hash, wallet scope, and duplicate-write lock', as
       localStorage.setItem(
         'modelseal.pending.studio-next.v1',
         JSON.stringify({
-          version: 1,
+          version: 2,
           account: '0x1111111111111111111111111111111111111111',
           address,
           chainId: 61997,
@@ -284,4 +285,99 @@ test('reload preserves pending hash, wallet scope, and duplicate-write lock', as
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+});
+
+test('a rejected consensus round is never presented as a completed write', async ({
+  page,
+}) => {
+  // Studio Next finalizes rounds that validators rejected. The transaction is
+  // FINALIZED, the leader's execution result is FINISHED_WITH_RETURN, and the
+  // transaction-kit `successful` flag is therefore true, yet every storage write
+  // was discarded. The dashboard must report the round outcome, not the flag.
+  await page.addInitScript(
+    ({ address }) => {
+      localStorage.setItem(
+        'modelseal.pending.studio-next.v1',
+        JSON.stringify({
+          version: 2,
+          account: '0x1111111111111111111111111111111111111111',
+          address,
+          chainId: 61997,
+          label: 'Run live endpoint audit',
+          startedAt: '2026-09-14T00:00:00Z',
+          stage: 'finalized',
+          genlayerTxId: '0x' + 'b'.repeat(64),
+          status: {
+            phase: 'finalized',
+            statusName: 'FINALIZED',
+            executionResultName: 'FINISHED_WITH_RETURN',
+            successful: true,
+          },
+          outcome: {
+            statusName: 'FINALIZED',
+            outcome: 'undetermined',
+            executionResultName: 'FINISHED_WITH_RETURN',
+            applied: false,
+            settled: true,
+          },
+        }),
+      );
+    },
+    { address: contract },
+  );
+  await mockFinalizedContract(page);
+  await page.goto('/');
+  await expect(
+    page.getByRole('heading', { name: 'Transaction recovery' }),
+  ).toBeVisible();
+  await expect(page.getByText('Nothing was written.')).toBeVisible();
+  await expect(
+    page.getByText('Validators did not reach a majority', { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByText('Consensus accepted the round')).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Dismiss unapplied transaction' }),
+  ).toBeEnabled();
+});
+
+test('an accepted round is reported as applied', async ({ page }) => {
+  await page.addInitScript(
+    ({ address }) => {
+      localStorage.setItem(
+        'modelseal.pending.studio-next.v1',
+        JSON.stringify({
+          version: 2,
+          account: '0x1111111111111111111111111111111111111111',
+          address,
+          chainId: 61997,
+          label: 'Run live endpoint audit',
+          startedAt: '2026-09-14T00:00:00Z',
+          stage: 'finalized',
+          genlayerTxId: '0x' + 'c'.repeat(64),
+          status: {
+            phase: 'finalized',
+            statusName: 'FINALIZED',
+            executionResultName: 'FINISHED_WITH_RETURN',
+            successful: true,
+          },
+          outcome: {
+            statusName: 'FINALIZED',
+            outcome: 'accepted',
+            executionResultName: 'FINISHED_WITH_RETURN',
+            applied: true,
+            settled: true,
+          },
+        }),
+      );
+    },
+    { address: contract },
+  );
+  await mockFinalizedContract(page);
+  await page.goto('/');
+  await expect(
+    page.getByText('Consensus accepted the round and applied the write.'),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Dismiss applied transaction' }),
+  ).toBeEnabled();
 });

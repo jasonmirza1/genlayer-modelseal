@@ -3,10 +3,26 @@ import assert from 'node:assert/strict';
 import {
   protectTransactions,
   loadPending,
-  finalizedSuccess,
+  executed,
+  verified,
   settled,
   PENDING_KEY,
 } from '../lib/transaction-safety.ts';
+
+const accepted = {
+  statusName: 'FINALIZED',
+  outcome: 'accepted',
+  executionResultName: 'FINISHED_WITH_RETURN',
+  applied: true,
+  settled: true,
+};
+const rejected = {
+  statusName: 'FINALIZED',
+  outcome: 'undetermined',
+  executionResultName: 'FINISHED_WITH_RETURN',
+  applied: false,
+  settled: true,
+};
 
 const account = '0x' + '1'.repeat(40);
 const address = '0x' + '2'.repeat(40);
@@ -34,6 +50,10 @@ function setup() {
     stage: 'ok',
     current: null,
     send: false,
+    // What the chain says the consensus round decided, which is the only thing
+    // that proves the write landed.
+    outcome: accepted,
+    verifyCalls: 0,
   };
   const provider = {
     async request({ method }) {
@@ -87,30 +107,55 @@ function setup() {
         state.current = r;
       },
       () => state.active,
+      async () => {
+        state.verifyCalls++;
+        if (state.outcome === null) throw new Error('RPC unavailable');
+        return state.outcome;
+      },
     );
   return { state, storage, kit: make(), make };
 }
 
-test('ACCEPTED and unknown execution are never successful finalization', () => {
-  assert.equal(finalizedSuccess({ phase: 'decided', successful: true }), false);
-  assert.equal(finalizedSuccess({ phase: 'finalized' }), false);
-  assert.equal(
-    finalizedSuccess({ phase: 'finalized', successful: false }),
-    false,
-  );
-  assert.equal(
-    finalizedSuccess({ phase: 'finalized', successful: true }),
-    true,
-  );
+test('a tracked status alone never counts as an executed write', () => {
+  // The tracker reports FINALIZED/FINISHED_WITH_RETURN for rounds validators
+  // rejected, so a record is only executed once the round outcome is resolved.
+  assert.equal(executed({ status: { phase: 'finalized', successful: true } }), false);
+  assert.equal(verified({ status: { phase: 'finalized', successful: true } }), false);
+  assert.equal(executed({ outcome: rejected }), false);
+  assert.equal(verified({ outcome: rejected }), true);
+  assert.equal(executed({ outcome: accepted }), true);
   assert.equal(settled({ phase: 'decided', statusName: 'ACCEPTED' }), false);
 });
-test('records submission before signing and persists the final status', async () => {
+test('records submission before signing and confirms the accepted round', async () => {
   const { kit, state, storage } = setup();
   await kit.submit({}, tx);
   assert.equal(loadPending(storage).genlayerTxId, hash);
   await kit.track(hash, () => {});
   assert.equal(loadPending(storage).stage, 'finalized');
-  assert.equal(finalizedSuccess(state.current.status), true);
+  assert.equal(state.verifyCalls, 1);
+  assert.equal(executed(loadPending(storage)), true);
+  assert.equal(executed(state.current), true);
+});
+test('a finalized round that consensus rejected is not an executed write', async () => {
+  const { kit, state, storage } = setup();
+  state.outcome = rejected;
+  await kit.submit({}, tx);
+  const status = await kit.track(hash, () => {});
+  // The tracker still claims success; the persisted record must not.
+  assert.equal(status.successful, true);
+  assert.equal(verified(loadPending(storage)), true);
+  assert.equal(executed(loadPending(storage)), false);
+  assert.equal(loadPending(storage).outcome.outcome, 'undetermined');
+});
+test('an unresolved round outcome stays unknown instead of successful', async () => {
+  const { kit, state, storage } = setup();
+  state.outcome = null;
+  await kit.submit({}, tx);
+  await kit.track(hash, () => {});
+  const record = loadPending(storage);
+  assert.equal(record.stage, 'unknown');
+  assert.equal(verified(record), false);
+  assert.equal(executed(record), false);
 });
 test('same panel and a reloaded/new panel cannot submit twice', async () => {
   const { kit, make, state } = setup();
@@ -158,7 +203,45 @@ test('tracking failure preserves the known hash and ACCEPTED is not finalized', 
   const record = loadPending(storage);
   assert.equal(record.genlayerTxId, hash);
   assert.equal(record.stage, 'unknown');
-  assert.equal(finalizedSuccess(record.status), false);
+  assert.equal(executed(record), false);
+});
+test('a later status update cannot keep claiming an earlier applied outcome', async () => {
+  // An outcome is derived from one specific status. Once the status is replaced
+  // the outcome no longer describes it, so it must not survive and keep the
+  // record reading as an applied write.
+  const { kit, storage } = setup();
+  await kit.submit({}, tx);
+  await kit.track(hash, () => {});
+  assert.equal(executed(loadPending(storage)), true);
+  await kit.cancel({ hash });
+  const record = loadPending(storage);
+  assert.equal(record.status.statusName, 'CANCELED');
+  assert.equal(verified(record), false);
+  assert.equal(executed(record), false);
+});
+test('a record written by the previous build still blocks a second write', async () => {
+  // Version 1 predates consensus-outcome verification and carries no `outcome`.
+  // It is still an unresolved write, so it must keep loading and keep blocking:
+  // a record that stops being visible is an unguarded repeat spend.
+  const { make, storage, state } = setup();
+  storage.setItem(
+    PENDING_KEY,
+    JSON.stringify({
+      version: 1,
+      account,
+      address,
+      chainId: 61997,
+      label: 'Run live endpoint audit',
+      startedAt: '2026-09-14T00:00:00Z',
+      stage: 'submitted',
+      genlayerTxId: hash,
+    }),
+  );
+  assert.equal(loadPending(storage).version, 1);
+  assert.equal(verified(loadPending(storage)), false);
+  assert.equal(executed(loadPending(storage)), false);
+  await assert.rejects(make().submit({}, tx), /already recorded/);
+  assert.equal(state.submits, 0);
 });
 test('corrupt recovery data fails closed and cannot authorize a write', async () => {
   const { kit, state, storage } = setup();

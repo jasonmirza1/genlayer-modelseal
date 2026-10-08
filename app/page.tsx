@@ -15,8 +15,6 @@ import {
   createTransactionKit,
   type TransactionKit,
 } from '@genlayer/transaction-kit';
-import { isSuccessful } from 'genlayer-js';
-import type { Hash } from 'genlayer-js/types';
 import {
   GenLayerTransactionPanel,
   type SubmitInput,
@@ -24,8 +22,9 @@ import {
 } from '@genlayer/transaction-kit-react';
 import {
   read,
-  client,
   isAddress,
+  consensusOutcome,
+  describeOutcome,
   EXPLORER,
   NETWORK,
   STUDIO_NEXT_CHAIN,
@@ -35,7 +34,9 @@ import {
   PENDING_KEY,
   loadPending,
   protectTransactions,
-  finalizedSuccess,
+  executed,
+  // `verified` is already a contract-load flag in this component.
+  verified as outcomeResolved,
   settled,
   type PendingRecord,
 } from '@/lib/transaction-safety';
@@ -147,7 +148,7 @@ export default function Home() {
     const saved =
       localStorage.getItem('modelseal.contract.studio-next') ??
       process.env.NEXT_PUBLIC_MODELSEAL_ADDRESS ??
-      '0x5fA12728120D6713671e5a18F79470994380F12D';
+      '0xA861e33d618E0B28429872f1743021dae57548b8';
     if (isAddress(saved)) {
       setAddress(saved);
       setAddressInput(saved);
@@ -322,17 +323,27 @@ export default function Home() {
   }, [refresh]);
   const recordChanged = useCallback((record: PendingRecord | null) => {
     setPendingRecord(record);
-    if (record && settled(record.status)) {
-      if (record.status && finalizedSuccess(record.status)) {
-        setNotice(
-          'Transaction finalized successfully. Refresh finalized state to inspect the result.',
-        );
-      } else {
-        setError(
-          `Transaction ended without confirmed execution success: ${record.status?.executionResultName ?? record.status?.statusName ?? 'unknown'}. Inspect explorer before retrying.`,
-        );
-      }
+    if (!record || !settled(record.status)) return;
+    // A finalized status is not a result. Report nothing until the consensus
+    // round outcome is known, then report exactly what the round decided.
+    const outcome = record.outcome;
+    if (!outcome) {
+      setNotice(
+        'Consensus finished. Confirming whether the round was accepted before reporting a result.',
+      );
+      return;
     }
+    if (outcome.applied) {
+      setError('');
+      setNotice(
+        'Consensus accepted the round and applied the write. Refresh finalized state to inspect the result.',
+      );
+      return;
+    }
+    setNotice('');
+    setError(
+      `${describeOutcome(outcome)} Status ${outcome.statusName || 'unknown'}, round outcome ${outcome.outcome || 'unknown'}, leader execution ${outcome.executionResultName || 'unknown'}. Inspect the explorer before retrying.`,
+    );
   }, []);
   function prepareWrite(label: string, method: string, args: string[]) {
     const p = providerRef.current;
@@ -353,6 +364,7 @@ export default function Home() {
         localStorage,
         recordChanged,
         () => !disconnected.current && providerRef.current === p,
+        consensusOutcome,
       ),
       tx: {
         kind: 'write',
@@ -366,38 +378,26 @@ export default function Home() {
     if (!pendingRecord?.genlayerTxId || checking) return;
     setChecking(true);
     try {
-      const result = await client().getTransaction({
-        hash: pendingRecord.genlayerTxId as Hash,
-      });
-      const final =
-        result.statusName === 'FINALIZED' ||
-        String(result.status) === '7' ||
-        String(result.status) === 'FINALIZED';
-      const canceled =
-        result.statusName === 'CANCELED' ||
-        String(result.status) === '8' ||
-        String(result.status) === 'CANCELED';
+      const outcome = await consensusOutcome(pendingRecord.genlayerTxId);
+      const canceled = outcome.statusName === 'CANCELED';
       const status: TrackedStatus = {
-        phase: final ? 'finalized' : 'pending',
-        statusName: final
-          ? 'FINALIZED'
-          : canceled
-            ? 'CANCELED'
-            : (result.statusName ?? String(result.status)),
+        phase: canceled ? 'decided' : outcome.settled ? 'finalized' : 'pending',
+        statusName: outcome.statusName,
         genlayerTxId: pendingRecord.genlayerTxId,
-        executionResultName: result.txExecutionResultName,
-        ...(final || canceled
-          ? { successful: !canceled && isSuccessful(result) }
-          : {}),
+        executionResultName: outcome.executionResultName,
+        // `successful` here means the round was accepted and applied, not merely
+        // that the leader returned a value.
+        ...(outcome.settled ? { successful: outcome.applied } : {}),
       };
       const next: PendingRecord = {
         ...pendingRecord,
         stage: settled(status) ? 'finalized' : 'submitted',
         status,
+        ...(outcome.settled ? { outcome } : {}),
       };
       localStorage.setItem(PENDING_KEY, JSON.stringify(next));
       recordChanged(next);
-      if (final) await refresh();
+      if (outcome.settled) await refresh();
     } catch (e) {
       setError(
         `Could not confirm the transaction: ${errorText(e)} Do not resubmit blindly.`,
@@ -407,10 +407,12 @@ export default function Home() {
     }
   }
   function clearRecovery() {
+    // An unresolved round outcome is not the same as a confirmed discarded
+    // write, so dropping a record we could not check needs acknowledgement too.
     if (
-      !settled(pendingRecord?.status) &&
+      (!settled(pendingRecord?.status) || !outcomeResolved(pendingRecord)) &&
       !window.confirm(
-        'Only clear this record after checking your wallet activity, explorer and finalized contract state. A pending transaction can still execute. Have you checked?',
+        'Only clear this record after checking your wallet activity, explorer and finalized contract state. A pending transaction can still execute, and a finalized one can still have been discarded by consensus. Have you checked?',
       )
     )
       return;
@@ -575,6 +577,25 @@ export default function Home() {
               {recoveryError ||
                 `${pendingRecord!.label} · ${pendingRecord!.status?.statusName ?? pendingRecord!.stage}`}
             </p>
+            {pendingRecord?.outcome && (
+              <p>
+                {describeOutcome(pendingRecord.outcome)} Round outcome:{' '}
+                <code>{pendingRecord.outcome.outcome || 'unknown'}</code> · leader
+                execution:{' '}
+                <code>
+                  {pendingRecord.outcome.executionResultName || 'unknown'}
+                </code>
+              </p>
+            )}
+            {pendingRecord &&
+              settled(pendingRecord.status) &&
+              !pendingRecord.outcome && (
+                <p className="subtle">
+                  The consensus round outcome is not resolved yet. Use “Check
+                  recorded transaction”: a finalized status alone does not prove
+                  the write was applied.
+                </p>
+              )}
             {pendingRecord && (
               <>
                 <p className="subtle">
@@ -630,9 +651,13 @@ export default function Home() {
                 }
                 onClick={clearRecovery}
               >
-                {settled(pendingRecord?.status)
-                  ? 'Dismiss completed transaction'
-                  : 'Clear after manual verification'}
+                {!settled(pendingRecord?.status)
+                  ? 'Clear after manual verification'
+                  : !outcomeResolved(pendingRecord)
+                    ? 'Clear unconfirmed outcome'
+                    : executed(pendingRecord)
+                      ? 'Dismiss applied transaction'
+                      : 'Dismiss unapplied transaction'}
               </button>
             </div>
           </section>
@@ -659,6 +684,13 @@ export default function Home() {
               theme="dark"
               trackUntil="finalized"
             />
+            <p className="subtle">
+              The fee panel reports the transaction status and the leader’s
+              execution result. Neither proves that validators accepted the round:
+              a rejected round still finalizes and still discards every state
+              change. ModelSeal resolves the round outcome itself and reports it
+              above, so treat this panel’s wording as progress, not as a result.
+            </p>
           </section>
         )}
         <div className="metric-grid">

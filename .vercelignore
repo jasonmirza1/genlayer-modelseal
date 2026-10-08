@@ -7,3 +7,14 @@ test-results
 __pycache__
 *.pyc
 .git
+.openai
+.vinext
+.wrangler
+dist
+out
+outputs
+work
+*.tsbuildinfo
+public/modelseal-logo.png
+scripts/inspect-demo.mjs
+scripts/record-demo.mjs
